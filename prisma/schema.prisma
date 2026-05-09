@@ -1,0 +1,140 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  courses       Course[]
+  studySessions StudySession[]
+  masteryScores MasteryScore[]
+}
+
+model Course {
+  id        String   @id @default(cuid())
+  name      String
+  code      String?
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  topics           Topic[]
+  learningOutcomes LearningOutcome[]
+  questions        Question[]
+  studySessions    StudySession[]
+}
+
+model Topic {
+  id   String @id @default(cuid())
+  name String
+
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id])
+
+  learningOutcomes LearningOutcome[]
+  questionTopics   QuestionTopic[]
+}
+
+model LearningOutcome {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+
+  topicId  String
+  courseId String
+  topic    Topic  @relation(fields: [topicId], references: [id])
+  course   Course @relation(fields: [courseId], references: [id])
+
+  questionOutcomes QuestionOutcome[]
+  masteryScores    MasteryScore[]
+}
+
+model Question {
+  id      String  @id @default(cuid())
+  content String
+  answer  String?
+
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id])
+
+  questionOutcomes QuestionOutcome[]
+  questionTopics   QuestionTopic[]
+  questionAttempts QuestionAttempt[]
+}
+
+model QuestionOutcome {
+  questionId        String
+  learningOutcomeId String
+
+  question        Question        @relation(fields: [questionId], references: [id])
+  learningOutcome LearningOutcome @relation(fields: [learningOutcomeId], references: [id])
+
+  @@id([questionId, learningOutcomeId])
+}
+
+model QuestionTopic {
+  questionId String
+  topicId    String
+
+  question Question @relation(fields: [questionId], references: [id])
+  topic    Topic    @relation(fields: [topicId], references: [id])
+
+  @@id([questionId, topicId])
+}
+
+model StudySession {
+  id        String    @id @default(cuid())
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  userId   String
+  courseId String
+  user     User   @relation(fields: [userId], references: [id])
+  course   Course @relation(fields: [courseId], references: [id])
+
+  questionAttempts QuestionAttempt[]
+}
+
+model QuestionAttempt {
+  id         String     @id @default(cuid())
+  isCorrect  Boolean
+  confidence Confidence
+  timestamp  DateTime   @default(now())
+
+  sessionId  String
+  questionId String
+  session    StudySession @relation(fields: [sessionId], references: [id])
+  question   Question     @relation(fields: [questionId], references: [id])
+}
+
+model MasteryScore {
+  id        String   @id @default(cuid())
+  score     Float
+  updatedAt DateTime @updatedAt
+
+  userId            String
+  learningOutcomeId String
+  user              User            @relation(fields: [userId], references: [id])
+  learningOutcome   LearningOutcome @relation(fields: [learningOutcomeId], references: [id])
+
+  @@unique([userId, learningOutcomeId])
+}
+
+enum Confidence {
+  GUESSED
+  UNSURE
+  CONFIDENT
+}
