@@ -15,6 +15,7 @@ export const mockCourses = [
     email: "sarah.chen@uni.edu",
     mastery: 72,
     timeSpent: 14.5,
+    isArchived: false,
   },
   {
     id: "cpsc213",
@@ -26,6 +27,7 @@ export const mockCourses = [
     email: "feeley@cs.ubc.ca",
     mastery: 54,
     timeSpent: 11.3,
+    isArchived: false,
   },
   {
     id: "math1141",
@@ -37,6 +39,7 @@ export const mockCourses = [
     email: "j.liu@uni.edu",
     mastery: 58,
     timeSpent: 10.2,
+    isArchived: true,
   },
   {
     id: "psyc1001",
@@ -48,6 +51,7 @@ export const mockCourses = [
     email: "e.wilson@uni.edu",
     mastery: 85,
     timeSpent: 8.0,
+    isArchived: true,
   },
 ];
 

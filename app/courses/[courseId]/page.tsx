@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { use, useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import NavBar from "@/components/NavBar";
 import {
   mockCourses,
@@ -188,6 +189,7 @@ function TopicAccordionCard({
 
 export default function CoursePageWrapper({ params }: { params: Promise<{ courseId: string }> }) {
   const { courseId } = use(params);
+  const router = useRouter();
   const course = mockCourses.find((c) => c.id === courseId) ?? mockCourses[0];
 
   const courseOutcomes = getOutcomesForCourse(courseId);
@@ -203,6 +205,7 @@ export default function CoursePageWrapper({ params }: { params: Promise<{ course
   const [openTopics, setOpenTopics] = useState<Set<string>>(
     () => new Set(courseTopics.length > 0 ? [courseTopics[0].id] : [])
   );
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
 
   function toggleTopic(id: string) {
     setOpenTopics((prev) => {
@@ -211,6 +214,11 @@ export default function CoursePageWrapper({ params }: { params: Promise<{ course
       else next.add(id);
       return next;
     });
+  }
+
+  function confirmArchive() {
+    course.isArchived = true;
+    router.push('/dashboard');
   }
 
   return (
@@ -392,6 +400,36 @@ export default function CoursePageWrapper({ params }: { params: Promise<{ course
             <p className="text-xs text-gray-400 text-center py-4">
               No outcomes yet — upload a document or add topics to get started.
             </p>
+          )}
+        </div>
+        {/* Archive course */}
+        <div className="flex justify-end">
+          {!showArchiveConfirm ? (
+            <button
+              onClick={() => setShowArchiveConfirm(true)}
+              className="px-4 py-2 rounded-full text-xs font-semibold text-gray-500 hover:text-gray-700 transition-colors"
+              style={{ backgroundColor: '#e5e7eb' }}
+            >
+              Archive Course
+            </button>
+          ) : (
+            <div className="flex items-center gap-3 px-5 py-3 rounded-2xl shadow" style={{ backgroundColor: '#FEFEE8' }}>
+              <p className="text-sm text-gray-700">Are you sure you want to archive this course?</p>
+              <button
+                onClick={confirmArchive}
+                className="px-4 py-1.5 rounded-full text-xs font-bold text-gray-800 hover:opacity-80 transition-opacity"
+                style={{ backgroundColor: '#F5C842' }}
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setShowArchiveConfirm(false)}
+                className="px-4 py-1.5 rounded-full text-xs font-bold text-gray-500 hover:text-gray-700 transition-colors"
+                style={{ backgroundColor: '#e5e7eb' }}
+              >
+                Cancel
+              </button>
+            </div>
           )}
         </div>
       </main>

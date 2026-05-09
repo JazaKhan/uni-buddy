@@ -173,7 +173,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {mockCourses.map((course) => (
+          {mockCourses.filter((c) => !c.isArchived).map((course) => (
             <CourseCard key={course.id} course={course} />
           ))}
         </div>
