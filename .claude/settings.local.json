@@ -5,7 +5,8 @@
       "Bash(mkdir -p \"c:/Users/Intikhab/Desktop/uni-buddy/uni-buddy/app/courses/[courseId]/questions\")",
       "Bash(mkdir -p \"c:/Users/Intikhab/Desktop/uni-buddy/uni-buddy/app/courses/[courseId]/session/results\")",
       "Bash(npx tsc *)",
-      "Bash(mkdir -p \"c:\\\\Users\\\\Intikhab\\\\Desktop\\\\uni-buddy\\\\uni-buddy\\\\app\\\\courses\\\\[courseId]\\\\session\\\\setup\")"
+      "Bash(mkdir -p \"c:\\\\Users\\\\Intikhab\\\\Desktop\\\\uni-buddy\\\\uni-buddy\\\\app\\\\courses\\\\[courseId]\\\\session\\\\setup\")",
+      "Bash(Select-String -Pattern \"middleware\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\Intikhab\\Desktop\\uni-buddy\\uni-buddy\\app\\courses",
