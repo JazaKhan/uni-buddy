@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"c:/Users/Intikhab/Desktop/uni-buddy/uni-buddy/app/courses/[courseId]\")",
+      "Bash(mkdir -p \"c:/Users/Intikhab/Desktop/uni-buddy/uni-buddy/app/courses/[courseId]/questions\")",
+      "Bash(mkdir -p \"c:/Users/Intikhab/Desktop/uni-buddy/uni-buddy/app/courses/[courseId]/session/results\")",
+      "Bash(npx tsc *)",
+      "Bash(mkdir -p \"c:\\\\Users\\\\Intikhab\\\\Desktop\\\\uni-buddy\\\\uni-buddy\\\\app\\\\courses\\\\[courseId]\\\\session\\\\setup\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Intikhab\\Desktop\\uni-buddy\\uni-buddy\\app\\courses",
+      "c:\\Users\\Intikhab\\Desktop\\uni-buddy\\uni-buddy\\app\\courses\\[courseId]\\session"
+    ]
+  }
+}
