@@ -1,9 +1,16 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
-import { mockCourses } from "@/lib/mockData";
-import { useState } from "react";
+
+type Course = {
+  id: string;
+  name: string;
+  code: string | null;
+  isArchived: boolean;
+  createdAt: string;
+};
 
 function PlaceholderChart({ label }: { label: string }) {
   return (
@@ -13,42 +20,33 @@ function PlaceholderChart({ label }: { label: string }) {
   );
 }
 
-function CourseCard({ course }: { course: (typeof mockCourses)[0] }) {
+function CourseCard({ course }: { course: Course }) {
   return (
     <div
       className="flex flex-col gap-3 p-6 rounded-3xl shadow-lg"
       style={{ backgroundColor: "#FEFEE8" }}
     >
-      <span
-        className="self-start px-3 py-1 rounded-full text-xs font-bold text-gray-700"
-        style={{ backgroundColor: "#D6EEF8" }}
-      >
-        {course.code}
-      </span>
-      <p className="text-sm font-semibold text-gray-800">{course.fullName}</p>
+      {course.code && (
+        <span
+          className="self-start px-3 py-1 rounded-full text-xs font-bold text-gray-700"
+          style={{ backgroundColor: "#D6EEF8" }}
+        >
+          {course.code}
+        </span>
+      )}
+      <p className="text-sm font-semibold text-gray-800">{course.name}</p>
       <p className="text-xs text-gray-500">
-        {course.startDate} – {course.endDate}
+        Added{" "}
+        {new Date(course.createdAt).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}
       </p>
-      <p className="text-xs text-gray-500">
-        {course.instructor} · {course.email}
-      </p>
-
-      <div className="flex flex-col gap-1">
-        <div className="flex justify-between text-xs text-gray-600">
-          <span>Mastery</span>
-          <span>{course.mastery}%</span>
-        </div>
-        <div className="w-full h-2 rounded-full bg-gray-200">
-          <div
-            className="h-2 rounded-full"
-            style={{ width: `${course.mastery}%`, backgroundColor: "#5CB85C" }}
-          />
-        </div>
-      </div>
 
       <Link
         href={`/courses/${course.id}`}
-        className="mt-1 w-full text-center py-2 rounded-full text-sm font-bold text-gray-800 transition-opacity hover:opacity-80"
+        className="mt-auto w-full text-center py-2 rounded-full text-sm font-bold text-gray-800 transition-opacity hover:opacity-80"
         style={{ backgroundColor: "#F5C842" }}
       >
         View Course
@@ -86,17 +84,115 @@ const periodLabel: Record<TimeTab, string> = {
   overall: "overall",
 };
 
+function AddCourseModal({
+  onClose,
+  onAdded,
+}: {
+  onClose: () => void;
+  onAdded: (course: Course) => void;
+}) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/courses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, code }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error ?? "Failed to add course");
+        return;
+      }
+      const course: Course = await res.json();
+      onAdded(course);
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div
+        className="w-full max-w-md p-8 rounded-3xl shadow-lg flex flex-col gap-4"
+        style={{ backgroundColor: "#FEFEE8" }}
+      >
+        <h2 className="text-base font-bold text-gray-800">Add Course</h2>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <input
+            type="text"
+            placeholder="Course Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            className="px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300"
+          />
+          <input
+            type="text"
+            placeholder="Course Code (optional)"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            className="px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300"
+          />
+          {error && <p className="text-red-500 text-xs">{error}</p>}
+          <div className="flex gap-3 justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-full text-sm font-semibold text-gray-600 hover:opacity-80 transition-opacity"
+              style={{ backgroundColor: "#e5e7eb" }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !name.trim()}
+              className="px-4 py-2 rounded-full text-sm font-bold text-gray-800 hover:opacity-80 transition-opacity disabled:opacity-50"
+              style={{ backgroundColor: "#F5C842" }}
+            >
+              {submitting ? "Adding…" : "Add Course"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [timeTab, setTimeTab] = useState<TimeTab>("weekly");
 
-  const overallMastery = Math.round(
-    mockCourses.reduce((sum, c) => sum + c.mastery, 0) / mockCourses.length
-  );
+  useEffect(() => {
+    fetch("/api/courses")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setCourses(data);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#8FAF76" }}>
       <NavBar />
+
+      {showModal && (
+        <AddCourseModal
+          onClose={() => setShowModal(false)}
+          onAdded={(course) => setCourses((prev) => [course, ...prev])}
+        />
+      )}
 
       <main className="flex-1 p-6 flex flex-col gap-6 max-w-6xl mx-auto w-full">
         {/* Stat Widgets */}
@@ -104,14 +200,13 @@ export default function DashboardPage() {
           <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-3" style={{ backgroundColor: "#FEFEE8" }}>
             <h2 className="text-base font-bold text-gray-800">Overall Term Mastery</h2>
             <p className="text-xs text-gray-500">Average across all courses weighted by credit</p>
-            <div className="text-4xl font-black text-gray-800">{overallMastery}%</div>
+            <div className="text-4xl font-black text-gray-800">—</div>
             <PlaceholderChart label="Mastery trend chart — coming soon" />
           </div>
 
           <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-4" style={{ backgroundColor: "#FEFEE8" }}>
             <h2 className="text-base font-bold text-gray-800">Time Spent Studying</h2>
 
-            {/* Toggle pills */}
             <div className="flex gap-1.5 self-start p-1 rounded-full bg-gray-100">
               {(["daily", "weekly", "overall"] as const).map((tab) => (
                 <button
@@ -128,7 +223,6 @@ export default function DashboardPage() {
               ))}
             </div>
 
-            {/* Per-course breakdown */}
             <div className="flex flex-col gap-2.5">
               {(() => {
                 const rows = timeData[timeTab];
@@ -150,7 +244,6 @@ export default function DashboardPage() {
               })()}
             </div>
 
-            {/* Total */}
             <p className="text-xs text-gray-400 mt-1">
               Total:{" "}
               <span className="font-bold text-gray-600">
@@ -165,6 +258,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-black text-white">Your Courses</h2>
           <button
+            onClick={() => setShowModal(true)}
             className="px-4 py-2 rounded-full text-sm font-bold text-gray-800 shadow hover:opacity-80 transition-opacity"
             style={{ backgroundColor: "#FEFEE8" }}
           >
@@ -172,11 +266,37 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {mockCourses.filter((c) => !c.isArchived).map((course) => (
-            <CourseCard key={course.id} course={course} />
-          ))}
-        </div>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="h-48 rounded-3xl shadow-lg animate-pulse"
+                style={{ backgroundColor: "#FEFEE8", opacity: 0.6 }}
+              />
+            ))}
+          </div>
+        ) : courses.length === 0 ? (
+          <div
+            className="flex flex-col items-center justify-center py-16 rounded-3xl shadow-lg gap-3"
+            style={{ backgroundColor: "#FEFEE8" }}
+          >
+            <p className="text-sm font-semibold text-gray-500">No courses yet</p>
+            <button
+              onClick={() => setShowModal(true)}
+              className="px-5 py-2 rounded-full text-sm font-bold text-gray-800 hover:opacity-80 transition-opacity"
+              style={{ backgroundColor: "#F5C842" }}
+            >
+              Add your first course
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {courses.map((course) => (
+              <CourseCard key={course.id} course={course} />
+            ))}
+          </div>
+        )}
 
         {/* Contact Form */}
         <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-4" style={{ backgroundColor: "#FEFEE8" }}>
