@@ -3,18 +3,35 @@
 import { useState, useEffect } from 'react';
 import type { User } from '@supabase/supabase-js';
 import NavBar from '@/components/NavBar';
-import { mockCourses } from '@/lib/mockData';
 import { createClient } from '@/lib/supabase/client';
+
+type CourseRow = {
+  id: string;
+  name: string;
+  code: string | null;
+  isArchived: boolean;
+};
 
 export default function ProfilePage() {
   const [user, setUser] = useState<User | null>(null);
   const [courseTab, setCourseTab] = useState<'active' | 'archived'>('active');
+  const [courses, setCourses] = useState<CourseRow[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(true);
 
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setUser(data.user);
     });
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/courses?all=true')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setCourses(data);
+      })
+      .finally(() => setLoadingCourses(false));
   }, []);
 
   const meta = user?.user_metadata;
@@ -61,9 +78,9 @@ export default function ProfilePage() {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4 w-full">
           {[
-            { label: 'Courses', value: mockCourses.length },
-            { label: 'Avg Mastery', value: `${Math.round(mockCourses.reduce((s, c) => s + c.mastery, 0) / mockCourses.length)}%` },
-            { label: 'Study Hours', value: `${mockCourses.reduce((s, c) => s + c.timeSpent, 0).toFixed(1)}h` },
+            { label: 'Active Courses', value: loadingCourses ? '—' : courses.filter((c) => !c.isArchived).length },
+            { label: 'Archived', value: loadingCourses ? '—' : courses.filter((c) => c.isArchived).length },
+            { label: 'Study Hours', value: '—' },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -97,21 +114,28 @@ export default function ProfilePage() {
             </div>
           </div>
           <div className="flex flex-col gap-2">
-            {mockCourses.filter((c) => c.isArchived === (courseTab === 'archived')).map((course) => (
+            {loadingCourses ? (
+              <>
+                <div className="h-10 rounded-2xl bg-gray-100 animate-pulse" />
+                <div className="h-10 rounded-2xl bg-gray-100 animate-pulse" />
+              </>
+            ) : (courseTab === 'active' ? courses.filter((c) => !c.isArchived) : courses.filter((c) => c.isArchived)).map((course) => (
               <div
                 key={course.id}
                 className="flex items-center justify-between p-3 rounded-2xl bg-gray-50 border border-gray-100"
               >
                 <div className="flex items-center gap-3">
-                  <span
-                    className="px-3 py-1 rounded-full text-xs font-bold text-gray-700"
-                    style={{ backgroundColor: '#D6EEF8' }}
-                  >
-                    {course.code}
-                  </span>
-                  <span className="text-xs text-gray-600">{course.fullName}</span>
+                  {course.code && (
+                    <span
+                      className="px-3 py-1 rounded-full text-xs font-bold text-gray-700"
+                      style={{ backgroundColor: '#D6EEF8' }}
+                    >
+                      {course.code}
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-600">{course.name}</span>
                 </div>
-                <span className="text-xs font-bold text-gray-700">{course.mastery}%</span>
+                <span className="text-xs font-bold text-gray-700">—</span>
               </div>
             ))}
           </div>

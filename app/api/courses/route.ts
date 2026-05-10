@@ -14,12 +14,15 @@ async function getPrismaUser() {
   })
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getPrismaUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { searchParams } = new URL(request.url)
+  const all = searchParams.get('all') === 'true'
+
   const courses = await prisma.course.findMany({
-    where: { userId: user.id, isArchived: false },
+    where: { userId: user.id, ...(all ? {} : { isArchived: false }) },
     orderBy: { createdAt: 'desc' },
   })
 
