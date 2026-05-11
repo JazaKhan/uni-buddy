@@ -24,9 +24,33 @@ export async function GET(request: Request) {
   const courses = await prisma.course.findMany({
     where: { userId: user.id, ...(all ? {} : { isArchived: false }) },
     orderBy: { createdAt: 'desc' },
+    include: {
+      learningOutcomes: {
+        include: {
+          masteryScores: { where: { userId: user.id } },
+        },
+      },
+    },
   })
 
-  return NextResponse.json(courses)
+  const result = courses.map((course) => {
+    const scores = course.learningOutcomes
+      .map((lo) => lo.masteryScores[0]?.score ?? null)
+      .filter((s): s is number => s !== null)
+    const courseMastery = scores.length > 0
+      ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+      : 0
+    return {
+      id: course.id,
+      name: course.name,
+      code: course.code,
+      isArchived: course.isArchived,
+      createdAt: course.createdAt,
+      courseMastery,
+    }
+  })
+
+  return NextResponse.json(result)
 }
 
 export async function POST(request: Request) {

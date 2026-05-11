@@ -7,6 +7,7 @@ import NavBar from "@/components/NavBar";
 
 type Topic = { id: string; name: string };
 type Outcome = { id: string; name: string };
+type OutcomeOption = { id: string; name: string; topicName: string };
 
 type Question = {
   id: string;
@@ -23,6 +24,7 @@ export default function QuestionsPage({ params }: { params: Promise<{ courseId: 
 
   const [questions, setQuestions] = useState<Question[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
+  const [outcomes, setOutcomes] = useState<OutcomeOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [activeTopic, setActiveTopic] = useState<string | null>(null);
@@ -32,6 +34,7 @@ export default function QuestionsPage({ params }: { params: Promise<{ courseId: 
   const [draftContent, setDraftContent] = useState("");
   const [draftAnswer, setDraftAnswer] = useState("");
   const [draftTopicIds, setDraftTopicIds] = useState<string[]>([]);
+  const [draftOutcomeIds, setDraftOutcomeIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -44,6 +47,10 @@ export default function QuestionsPage({ params }: { params: Promise<{ courseId: 
     const courseData = await courseRes.json();
     setQuestions(questionsData);
     setTopics(courseData.topics as Topic[]);
+    const flat: OutcomeOption[] = courseData.topics.flatMap((t: any) =>
+      t.outcomes.map((o: any) => ({ id: o.id, name: o.name, topicName: t.name }))
+    );
+    setOutcomes(flat);
     setLoading(false);
   }, [courseId, router]);
 
@@ -59,12 +66,14 @@ export default function QuestionsPage({ params }: { params: Promise<{ courseId: 
         content: draftContent.trim(),
         answer: draftAnswer.trim() || null,
         topicIds: draftTopicIds,
+        outcomeIds: draftOutcomeIds,
       }),
     });
     if (res.ok) {
       setDraftContent("");
       setDraftAnswer("");
       setDraftTopicIds([]);
+      setDraftOutcomeIds([]);
       setShowModal(false);
       await fetchData();
     }
@@ -74,6 +83,12 @@ export default function QuestionsPage({ params }: { params: Promise<{ courseId: 
   function toggleDraftTopic(id: string) {
     setDraftTopicIds((prev) =>
       prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
+    );
+  }
+
+  function toggleDraftOutcome(id: string) {
+    setDraftOutcomeIds((prev) =>
+      prev.includes(id) ? prev.filter((o) => o !== id) : [...prev, id]
     );
   }
 
@@ -254,9 +269,31 @@ export default function QuestionsPage({ params }: { params: Promise<{ courseId: 
               </div>
             )}
 
+            {outcomes.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-gray-600">Tag to outcomes (optional)</label>
+                <div className="flex gap-2 flex-wrap">
+                  {outcomes.map((o) => (
+                    <button
+                      key={o.id}
+                      onClick={() => toggleDraftOutcome(o.id)}
+                      className="px-3 py-1 rounded-full text-xs font-bold transition-all flex flex-col items-start"
+                      style={{
+                        backgroundColor: draftOutcomeIds.includes(o.id) ? "#374151" : "#e5e3d0",
+                        color: draftOutcomeIds.includes(o.id) ? "white" : "#374151",
+                      }}
+                    >
+                      <span>{o.name}</span>
+                      <span className="text-[10px] font-normal opacity-60">{o.topicName}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3 justify-end pt-2">
               <button
-                onClick={() => { setShowModal(false); setDraftContent(""); setDraftAnswer(""); setDraftTopicIds([]); }}
+                onClick={() => { setShowModal(false); setDraftContent(""); setDraftAnswer(""); setDraftTopicIds([]); setDraftOutcomeIds([]); }}
                 className="px-4 py-2 rounded-full text-xs font-semibold text-gray-500 hover:text-gray-700"
                 style={{ backgroundColor: "#e5e7eb" }}
               >
