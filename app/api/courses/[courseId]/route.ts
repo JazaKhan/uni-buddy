@@ -26,11 +26,10 @@ export async function GET(
     include: {
       topics: {
         include: {
+          _count: { select: { questionTopics: true } },
           learningOutcomes: {
             include: {
-              masteryScores: {
-                where: { userId: user.id },
-              },
+              masteryScores: { where: { userId: user.id } },
             },
           },
         },
@@ -43,6 +42,7 @@ export async function GET(
   const topics = course.topics.map((topic) => ({
     id: topic.id,
     name: topic.name,
+    questionCount: topic._count.questionTopics,
     outcomes: topic.learningOutcomes.map((lo) => ({
       id: lo.id,
       name: lo.name,

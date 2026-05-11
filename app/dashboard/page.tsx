@@ -10,6 +10,7 @@ type Course = {
   code: string | null;
   isArchived: boolean;
   createdAt: string;
+  courseMastery: number;
 };
 
 function PlaceholderChart({ label }: { label: string }) {
@@ -43,6 +44,20 @@ function CourseCard({ course }: { course: Course }) {
           year: "numeric",
         })}
       </p>
+
+      <div className="flex items-center gap-2">
+        <div className="flex-1 h-1.5 rounded-full bg-gray-200">
+          <div
+            className="h-1.5 rounded-full"
+            style={{
+              width: `${course.courseMastery}%`,
+              backgroundColor:
+                course.courseMastery < 50 ? "#FF6B6B" : course.courseMastery < 70 ? "#F5C842" : "#5CB85C",
+            }}
+          />
+        </div>
+        <span className="text-xs font-bold text-gray-500 shrink-0">{course.courseMastery}%</span>
+      </div>
 
       <Link
         href={`/courses/${course.id}`}
@@ -174,6 +189,12 @@ export default function DashboardPage() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [timeTab, setTimeTab] = useState<TimeTab>("weekly");
 
+  const studiedCourses = courses.filter((c) => c.courseMastery > 0);
+  const overallMastery =
+    studiedCourses.length > 0
+      ? Math.round(studiedCourses.reduce((sum, c) => sum + c.courseMastery, 0) / studiedCourses.length)
+      : null;
+
   useEffect(() => {
     fetch("/api/courses")
       .then((r) => r.json())
@@ -200,7 +221,9 @@ export default function DashboardPage() {
           <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-3" style={{ backgroundColor: "#FEFEE8" }}>
             <h2 className="text-base font-bold text-gray-800">Overall Term Mastery</h2>
             <p className="text-xs text-gray-500">Average across all courses weighted by credit</p>
-            <div className="text-4xl font-black text-gray-800">—</div>
+            <div className="text-4xl font-black text-gray-800">
+              {overallMastery !== null ? `${overallMastery}%` : "—"}
+            </div>
             <PlaceholderChart label="Mastery trend chart — coming soon" />
           </div>
 
