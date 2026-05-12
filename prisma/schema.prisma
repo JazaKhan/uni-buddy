@@ -36,6 +36,7 @@ model Course {
   learningOutcomes LearningOutcome[]
   questions        Question[]
   studySessions    StudySession[]
+  documents Document[]
 }
 
 model Topic {
@@ -138,4 +139,16 @@ enum Confidence {
   GUESSED
   UNSURE
   CONFIDENT
+}
+
+model Document {
+  id        String   @id @default(cuid())
+  name      String
+  fileUrl   String
+  fileType  String
+  purpose   String
+  createdAt DateTime @default(now())
+
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id])
 }
