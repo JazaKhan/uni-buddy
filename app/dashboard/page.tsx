@@ -21,13 +21,6 @@ type PrioritizedTopic = {
   needsWork: number;
 };
 
-function PlaceholderChart({ label }: { label: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-40 rounded-2xl border-2 border-dashed border-gray-300 text-gray-400 text-sm">
-      {label}
-    </div>
-  );
-}
 
 function CourseCard({ course }: { course: Course }) {
   return (
@@ -226,13 +219,65 @@ export default function DashboardPage() {
       <main className="flex-1 p-6 flex flex-col gap-6 max-w-6xl mx-auto w-full">
         {/* Stat Widgets */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-3" style={{ backgroundColor: "#FEFEE8" }}>
-            <h2 className="text-base font-bold text-gray-800">Overall Term Mastery</h2>
-            <p className="text-xs text-gray-500">Average across all courses weighted by credit</p>
-            <div className="text-4xl font-black text-gray-800">
-              {overallMastery !== null ? `${overallMastery}%` : "—"}
+          <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-4" style={{ backgroundColor: "#FEFEE8" }}>
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-base font-bold text-gray-800">Overall Term Mastery</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Across all active courses</p>
+              </div>
+              <span
+                className="text-3xl font-black"
+                style={{
+                  color:
+                    overallMastery === null ? "#9ca3af"
+                    : overallMastery < 50 ? "#FF6B6B"
+                    : overallMastery < 70 ? "#F5C842"
+                    : "#5CB85C",
+                }}
+              >
+                {overallMastery !== null ? `${overallMastery}%` : "—"}
+              </span>
             </div>
-            <PlaceholderChart label="Mastery trend chart — coming soon" />
+
+            {loading ? (
+              <div className="flex flex-col gap-3">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-8 rounded-xl bg-gray-100 animate-pulse" />
+                ))}
+              </div>
+            ) : courses.filter((c) => !c.isArchived).length === 0 ? (
+              <p className="text-xs text-gray-400 italic">Add a course to start tracking mastery.</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {courses
+                  .filter((c) => !c.isArchived)
+                  .sort((a, b) => a.courseMastery - b.courseMastery)
+                  .map((course) => {
+                    const color =
+                      course.courseMastery < 50 ? "#FF6B6B"
+                      : course.courseMastery < 70 ? "#F5C842"
+                      : "#5CB85C";
+                    return (
+                      <div key={course.id} className="flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-gray-700 truncate max-w-[75%]">
+                            {course.code ?? course.name}
+                          </span>
+                          <span className="text-xs font-bold" style={{ color }}>
+                            {course.courseMastery}%
+                          </span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-gray-100">
+                          <div
+                            className="h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${course.courseMastery}%`, backgroundColor: color }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
 
           <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-4" style={{ backgroundColor: "#FEFEE8" }}>
