@@ -27,28 +27,80 @@ type CourseData = {
   topics: TopicWithOutcomes[];
 };
 
-function PlaceholderChart({ label }: { label: string }) {
+type MasteryPoint = { sessionNumber: number; date: string; mastery: number };
+
+function MasteryChart({ history, currentMastery }: { history: MasteryPoint[]; currentMastery: number }) {
+  const W = 400;
+  const H = 120;
+  const padX = 28;
+  const padY = 12;
+  const innerW = W - padX * 2;
+  const innerH = H - padY * 2;
+
+  const color =
+    currentMastery < 50 ? "#FF6B6B" : currentMastery < 70 ? "#F5C842" : "#5CB85C";
+
+  if (history.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-32 rounded-2xl border-2 border-dashed border-gray-200 text-gray-400 text-xs text-center px-4">
+        Complete a study session to see your progress over time
+      </div>
+    );
+  }
+
+  if (history.length === 1) {
+    return (
+      <div className="flex flex-col items-center justify-center h-32 rounded-2xl bg-gray-50 gap-1">
+        <span className="text-xs text-gray-400">Session 1 complete</span>
+        <span className="text-2xl font-black" style={{ color }}>{history[0].mastery}%</span>
+        <span className="text-xs text-gray-400">Do another session to see your trend</span>
+      </div>
+    );
+  }
+
+  const xStep = innerW / (history.length - 1);
+  const pts = history.map((p, i) => ({
+    x: padX + i * xStep,
+    y: padY + innerH - (p.mastery / 100) * innerH,
+    mastery: p.mastery,
+  }));
+
+  const linePath = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+  const areaPath = `${linePath} L${pts[pts.length - 1].x},${padY + innerH} L${pts[0].x},${padY + innerH} Z`;
+  const gradId = "masteryGrad";
+
   return (
-    <div className="flex flex-col items-center justify-center h-36 rounded-2xl border-2 border-dashed border-gray-300 text-gray-400 text-sm text-center px-4">
-      {label}
-    </div>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 128 }}>
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      {[25, 50, 75, 100].map((pct) => {
+        const y = padY + innerH - (pct / 100) * innerH;
+        return (
+          <g key={pct}>
+            <line x1={padX} x2={W - padX} y1={y} y2={y} stroke="#e5e7eb" strokeWidth="1" />
+            <text x={padX - 4} y={y + 3.5} textAnchor="end" fontSize="8" fill="#9ca3af">{pct}</text>
+          </g>
+        );
+      })}
+      <path d={areaPath} fill={`url(#${gradId})`} />
+      <path d={linePath} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {pts.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r="4" fill="white" stroke={color} strokeWidth="2" />
+          <text x={p.x} y={H - 1} textAnchor="middle" fontSize="8" fill="#9ca3af">S{i + 1}</text>
+        </g>
+      ))}
+    </svg>
   );
 }
 
-function OutcomeRow({ outcome, editMode, onDelete }: { outcome: Outcome; editMode?: boolean; onDelete?: (id: string) => void }) {
+function OutcomeRow({ outcome }: { outcome: Outcome }) {
   return (
-    <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-[#f5f3e0] transition-colors group">
-      {editMode && (
-        <button
-          onClick={() => onDelete?.(outcome.id)}
-          className="shrink-0 w-4 h-4 rounded-full bg-red-100 hover:bg-red-400 text-red-400 hover:text-white flex items-center justify-center transition-colors"
-          title="Delete outcome"
-        >
-          <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
-            <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </button>
-      )}
+    <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-[#f5f3e0] transition-colors">
       <p className="text-xs text-gray-700 flex-1">{outcome.name}</p>
       <span className="text-xs font-semibold text-gray-500 w-9 text-right shrink-0">
         {outcome.mastery}%
@@ -73,18 +125,12 @@ function TopicAccordionCard({
   isOpen,
   onToggle,
   onAddOutcome,
-  editMode,
-  onDeleteTopic,
-  onDeleteOutcome,
 }: {
   topic: TopicWithOutcomes;
   index: number;
   isOpen: boolean;
   onToggle: () => void;
   onAddOutcome: (topicId: string, name: string) => Promise<void>;
-  editMode?: boolean;
-  onDeleteTopic?: (id: string) => void;
-  onDeleteOutcome?: (id: string) => void;
 }) {
   const [addingOutcome, setAddingOutcome] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -144,17 +190,6 @@ function TopicAccordionCard({
         >
           + Add Outcome
         </button>
-        {editMode && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDeleteTopic?.(topic.id); }}
-            className="shrink-0 w-6 h-6 rounded-full bg-red-100 hover:bg-red-400 text-red-400 hover:text-white flex items-center justify-center transition-colors"
-            title="Delete topic"
-          >
-            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
-              <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-        )}
       </div>
 
       {isOpen && (
@@ -164,7 +199,7 @@ function TopicAccordionCard({
           )}
           {topic.outcomes.map((lo, i) => (
             <div key={lo.id} style={{ borderTop: i === 0 ? "none" : "1px solid #ede9cc" }}>
-              <OutcomeRow outcome={lo} editMode={editMode} onDelete={onDeleteOutcome} />
+              <OutcomeRow outcome={lo} />
             </div>
           ))}
           {addingOutcome && (
@@ -223,12 +258,12 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
   const [draftTopicName, setDraftTopicName] = useState("");
   const [savingTopic, setSavingTopic] = useState(false);
   const topicInputRef = useRef<HTMLInputElement>(null);
+  const [masteryHistory, setMasteryHistory] = useState<MasteryPoint[]>([]);
   const [documents, setDocuments] = useState<Array<{ id: string; name: string; purpose: string; createdAt: string }>>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadPurpose, setUploadPurpose] = useState("");
   const [previewData, setPreviewData] = useState<null | { topics: Array<{ name: string; selected: boolean; outcomes: Array<{ name: string; selected: boolean }> }> }>(null);
   const [confirmingSave, setConfirmingSave] = useState(false);
-  const [editMode, setEditMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -244,6 +279,11 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
       setOpenTopics(new Set([data.topics[0].id]));
     }
     setLoading(false);
+
+    fetch(`/api/courses/${courseId}/mastery-history`)
+      .then((r) => { if (!r.ok) throw new Error("failed"); return r.json(); })
+      .then((d) => { if (Array.isArray(d.history)) setMasteryHistory(d.history); })
+      .catch(() => {});
     fetch(`/api/courses/${courseId}/documents`)
       .then((r) => r.json())
       .then((docs) => { if (Array.isArray(docs)) setDocuments(docs); });
@@ -339,24 +379,6 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
     await fetchCourse();
   }
 
-  async function handleDeleteTopic(topicId: string) {
-    await fetch(`/api/courses/${courseId}/topics`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topicId }),
-    });
-    await fetchCourse();
-  }
-
-  async function handleDeleteOutcome(outcomeId: string) {
-    await fetch(`/api/courses/${courseId}/outcomes`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outcomeId }),
-    });
-    await fetchCourse();
-  }
-
   async function confirmArchive() {
     await fetch(`/api/courses/${courseId}`, { method: "PATCH" });
     router.push("/dashboard");
@@ -413,16 +435,34 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-3" style={{ backgroundColor: "#FEFEE8" }}>
-            <h2 className="text-sm font-bold text-gray-800">Course Mastery</h2>
-            <p className="text-xs text-gray-500">Based on study sessions and learning outcomes</p>
-            <div className="text-4xl font-black text-gray-800">{course.courseMastery}%</div>
-            <div className="w-full h-3 rounded-full bg-gray-200">
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-sm font-bold text-gray-800">Course Mastery</h2>
+              <span
+                className="text-3xl font-black"
+                style={{
+                  color:
+                    course.courseMastery < 50 ? "#FF6B6B"
+                    : course.courseMastery < 70 ? "#F5C842"
+                    : "#5CB85C",
+                }}
+              >
+                {course.courseMastery}%
+              </span>
+            </div>
+            <div className="w-full h-2 rounded-full bg-gray-200">
               <div
-                className="h-3 rounded-full"
-                style={{ width: `${course.courseMastery}%`, backgroundColor: "#5CB85C" }}
+                className="h-2 rounded-full transition-all duration-500"
+                style={{
+                  width: `${course.courseMastery}%`,
+                  backgroundColor:
+                    course.courseMastery < 50 ? "#FF6B6B"
+                    : course.courseMastery < 70 ? "#F5C842"
+                    : "#5CB85C",
+                }}
               />
             </div>
-            <PlaceholderChart label="Mastery over time chart — coming soon" />
+            <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Progress over time</p>
+            <MasteryChart history={masteryHistory} currentMastery={course.courseMastery} />
           </div>
 
           <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-3" style={{ backgroundColor: "#FEFEE8" }}>
@@ -551,24 +591,12 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-bold text-gray-800">Learning Outcomes</h2>
-              <div className="flex items-center gap-2 mt-0.5">
-                <p className="text-xs text-gray-500">
-                  {allOutcomes.length} outcome{allOutcomes.length !== 1 ? "s" : ""}
-                  {course.topics.length > 0
-                    ? ` across ${course.topics.length} topic${course.topics.length !== 1 ? "s" : ""}`
-                    : ""}
-                </p>
-                <button
-                  onClick={() => setEditMode((v) => !v)}
-                  className="text-xs font-semibold px-2 py-0.5 rounded-full transition-colors"
-                  style={{
-                    backgroundColor: editMode ? "#fecaca" : "#f3f4f6",
-                    color: editMode ? "#dc2626" : "#9ca3af",
-                  }}
-                >
-                  {editMode ? "Done" : "Edit"}
-                </button>
-              </div>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {allOutcomes.length} outcome{allOutcomes.length !== 1 ? "s" : ""}
+                {course.topics.length > 0
+                  ? ` across ${course.topics.length} topic${course.topics.length !== 1 ? "s" : ""}`
+                  : ""}
+              </p>
             </div>
             <button
               onClick={() => setAddingTopic(true)}
@@ -625,9 +653,6 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                   isOpen={openTopics.has(topic.id)}
                   onToggle={() => toggleTopic(topic.id)}
                   onAddOutcome={handleAddOutcome}
-                  editMode={editMode}
-                  onDeleteTopic={handleDeleteTopic}
-                  onDeleteOutcome={handleDeleteOutcome}
                 />
               ))}
             </div>
@@ -679,11 +704,11 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
               <p className="text-xs text-gray-500 mt-1">Review and deselect anything you don't want to add. Then confirm.</p>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 pb-4 flex flex-col gap-3">
+            <div className="flex-1 overflow-y-auto px-6 flex flex-col gap-3">
               {previewData.topics.map((topic, ti) => (
-                <div key={ti} className="rounded-2xl" style={{ border: "1px solid #e5e3d0", backgroundColor: "#FEFEE8" }}>
+                <div key={ti} className="rounded-2xl overflow-hidden" style={{ border: "1px solid #e5e3d0" }}>
                   <div
-                    className="flex items-center gap-2 px-4 py-2.5 cursor-pointer rounded-t-2xl"
+                    className="flex items-center gap-2 px-4 py-2.5 cursor-pointer"
                     style={{ backgroundColor: "#ede9cc" }}
                     onClick={() => setPreviewData((prev) => {
                       if (!prev) return prev;
@@ -708,7 +733,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                   {topic.outcomes.map((outcome, oi) => (
                     <div
                       key={oi}
-                      className="flex items-start gap-2 px-5 py-2.5 cursor-pointer hover:bg-[#f5f3e0]"
+                      className="flex items-center gap-2 px-5 py-2 cursor-pointer hover:bg-[#f5f3e0]"
                       style={{ borderTop: "1px solid #ede9cc" }}
                       onClick={() => setPreviewData((prev) => {
                         if (!prev) return prev;
@@ -720,7 +745,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                       })}
                     >
                       <div
-                        className="w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 mt-0.5"
+                        className="w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0"
                         style={{ borderColor: outcome.selected ? "#d4a800" : "#d1d5db", backgroundColor: outcome.selected ? "#d4a800" : "white" }}
                       >
                         {outcome.selected && (

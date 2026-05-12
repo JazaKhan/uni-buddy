@@ -13,6 +13,14 @@ type Course = {
   courseMastery: number;
 };
 
+type PrioritizedTopic = {
+  id: string;
+  name: string;
+  courseCode: string | null;
+  avgMastery: number;
+  needsWork: number;
+};
+
 function PlaceholderChart({ label }: { label: string }) {
   return (
     <div className="flex flex-col items-center justify-center h-40 rounded-2xl border-2 border-dashed border-gray-300 text-gray-400 text-sm">
@@ -70,34 +78,6 @@ function CourseCard({ course }: { course: Course }) {
   );
 }
 
-type TimeTab = "daily" | "weekly" | "overall";
-
-const timeData: Record<TimeTab, { code: string; hours: number }[]> = {
-  daily: [
-    { code: "COMP2511", hours: 2.5 },
-    { code: "CPSC 213", hours: 1.8 },
-    { code: "MATH1141", hours: 1.2 },
-    { code: "PSYC1001", hours: 0.5 },
-  ],
-  weekly: [
-    { code: "CPSC 213", hours: 12.5 },
-    { code: "COMP2511", hours: 8.0 },
-    { code: "MATH1141", hours: 5.5 },
-    { code: "PSYC1001", hours: 3.5 },
-  ],
-  overall: [
-    { code: "COMP2511", hours: 14.5 },
-    { code: "CPSC 213", hours: 11.3 },
-    { code: "MATH1141", hours: 10.2 },
-    { code: "PSYC1001", hours: 8.0 },
-  ],
-};
-
-const periodLabel: Record<TimeTab, string> = {
-  daily: "today",
-  weekly: "this week",
-  overall: "overall",
-};
 
 function AddCourseModal({
   onClose,
@@ -184,10 +164,10 @@ function AddCourseModal({
 
 export default function DashboardPage() {
   const [courses, setCourses] = useState<Course[]>([]);
+  const [topicsToFocus, setTopicsToFocus] = useState<PrioritizedTopic[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", message: "" });
-  const [timeTab, setTimeTab] = useState<TimeTab>("weekly");
 
   const studiedCourses = courses.filter((c) => c.courseMastery > 0);
   const overallMastery =
@@ -198,8 +178,36 @@ export default function DashboardPage() {
   useEffect(() => {
     fetch("/api/courses")
       .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) setCourses(data);
+      .then(async (data) => {
+        if (!Array.isArray(data)) return;
+        setCourses(data);
+
+        const details = await Promise.all(
+          data.map((c: Course) =>
+            fetch(`/api/courses/${c.id}`)
+              .then((r) => r.json())
+              .catch(() => null)
+          )
+        );
+
+        const allTopics: PrioritizedTopic[] = details
+          .flatMap((detail, i) => {
+            if (!detail?.topics) return [];
+            const course = data[i] as Course;
+            return (detail.topics as { id: string; name: string; outcomes: { mastery: number }[] }[])
+              .filter((t) => t.outcomes.length > 0)
+              .map((t) => {
+                const avgMastery = Math.round(
+                  t.outcomes.reduce((sum, o) => sum + o.mastery, 0) / t.outcomes.length
+                );
+                const needsWork = t.outcomes.filter((o) => o.mastery < 70).length;
+                return { id: t.id, name: t.name, courseCode: course.code, avgMastery, needsWork };
+              });
+          })
+          .sort((a, b) => a.avgMastery - b.avgMastery)
+          .slice(0, 3);
+
+        setTopicsToFocus(allTopics);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -228,52 +236,49 @@ export default function DashboardPage() {
           </div>
 
           <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-4" style={{ backgroundColor: "#FEFEE8" }}>
-            <h2 className="text-base font-bold text-gray-800">Time Spent Studying</h2>
-
-            <div className="flex gap-1.5 self-start p-1 rounded-full bg-gray-100">
-              {(["daily", "weekly", "overall"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setTimeTab(tab)}
-                  className="px-3 py-1 rounded-full text-xs font-bold capitalize transition-all"
-                  style={{
-                    backgroundColor: timeTab === tab ? "#F5C842" : "transparent",
-                    color: timeTab === tab ? "#1f2937" : "#6b7280",
-                  }}
-                >
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </button>
-              ))}
+            <div>
+              <h2 className="text-base font-bold text-gray-800">Topics to Prioritize</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Weakest topics based on your current mastery</p>
             </div>
-
-            <div className="flex flex-col gap-2.5">
-              {(() => {
-                const rows = timeData[timeTab];
-                const max = rows[0].hours;
-                return rows.map((row) => (
-                  <div key={row.code} className="flex items-center gap-3">
-                    <span className="text-xs font-semibold text-gray-700 w-20 shrink-0">{row.code}</span>
-                    <div className="flex-1 h-2 rounded-full bg-gray-200">
+            {loading ? (
+              <div className="flex flex-col gap-3">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-10 rounded-xl bg-gray-100 animate-pulse" />
+                ))}
+              </div>
+            ) : topicsToFocus.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">Complete a study session to see which topics to focus on.</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {topicsToFocus.map((topic) => (
+                  <div key={topic.id} className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="text-xs font-bold text-gray-800 truncate">{topic.name}</p>
+                        {topic.courseCode && (
+                          <span className="text-xs text-gray-400 shrink-0">{topic.courseCode}</span>
+                        )}
+                      </div>
+                      <span className="text-xs font-bold text-gray-500 shrink-0">{topic.avgMastery}%</span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-gray-200">
                       <div
-                        className="h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${(row.hours / max) * 100}%`, backgroundColor: "#5CB85C" }}
+                        className="h-2 rounded-full"
+                        style={{
+                          width: `${topic.avgMastery}%`,
+                          backgroundColor: topic.avgMastery < 50 ? "#FF6B6B" : topic.avgMastery < 70 ? "#F5C842" : "#5CB85C",
+                        }}
                       />
                     </div>
-                    <span className="text-xs font-bold text-gray-600 w-10 text-right shrink-0">
-                      {row.hours.toFixed(1)}h
-                    </span>
+                    {topic.needsWork > 0 && (
+                      <p className="text-xs text-gray-400">
+                        {topic.needsWork} outcome{topic.needsWork !== 1 ? "s" : ""} need work
+                      </p>
+                    )}
                   </div>
-                ));
-              })()}
-            </div>
-
-            <p className="text-xs text-gray-400 mt-1">
-              Total:{" "}
-              <span className="font-bold text-gray-600">
-                {timeData[timeTab].reduce((s, r) => s + r.hours, 0).toFixed(1)}h
-              </span>{" "}
-              {periodLabel[timeTab]}
-            </p>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
