@@ -35,9 +35,20 @@ function PlaceholderChart({ label }: { label: string }) {
   );
 }
 
-function OutcomeRow({ outcome }: { outcome: Outcome }) {
+function OutcomeRow({ outcome, editMode, onDelete }: { outcome: Outcome; editMode?: boolean; onDelete?: (id: string) => void }) {
   return (
-    <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-[#f5f3e0] transition-colors">
+    <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-[#f5f3e0] transition-colors group">
+      {editMode && (
+        <button
+          onClick={() => onDelete?.(outcome.id)}
+          className="shrink-0 w-4 h-4 rounded-full bg-red-100 hover:bg-red-400 text-red-400 hover:text-white flex items-center justify-center transition-colors"
+          title="Delete outcome"
+        >
+          <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+            <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
       <p className="text-xs text-gray-700 flex-1">{outcome.name}</p>
       <span className="text-xs font-semibold text-gray-500 w-9 text-right shrink-0">
         {outcome.mastery}%
@@ -62,12 +73,18 @@ function TopicAccordionCard({
   isOpen,
   onToggle,
   onAddOutcome,
+  editMode,
+  onDeleteTopic,
+  onDeleteOutcome,
 }: {
   topic: TopicWithOutcomes;
   index: number;
   isOpen: boolean;
   onToggle: () => void;
   onAddOutcome: (topicId: string, name: string) => Promise<void>;
+  editMode?: boolean;
+  onDeleteTopic?: (id: string) => void;
+  onDeleteOutcome?: (id: string) => void;
 }) {
   const [addingOutcome, setAddingOutcome] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -127,6 +144,17 @@ function TopicAccordionCard({
         >
           + Add Outcome
         </button>
+        {editMode && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDeleteTopic?.(topic.id); }}
+            className="shrink-0 w-6 h-6 rounded-full bg-red-100 hover:bg-red-400 text-red-400 hover:text-white flex items-center justify-center transition-colors"
+            title="Delete topic"
+          >
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+              <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {isOpen && (
@@ -136,7 +164,7 @@ function TopicAccordionCard({
           )}
           {topic.outcomes.map((lo, i) => (
             <div key={lo.id} style={{ borderTop: i === 0 ? "none" : "1px solid #ede9cc" }}>
-              <OutcomeRow outcome={lo} />
+              <OutcomeRow outcome={lo} editMode={editMode} onDelete={onDeleteOutcome} />
             </div>
           ))}
           {addingOutcome && (
@@ -200,6 +228,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
   const [uploadPurpose, setUploadPurpose] = useState("");
   const [previewData, setPreviewData] = useState<null | { topics: Array<{ name: string; selected: boolean; outcomes: Array<{ name: string; selected: boolean }> }> }>(null);
   const [confirmingSave, setConfirmingSave] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -307,6 +336,24 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
     });
     setConfirmingSave(false);
     setPreviewData(null);
+    await fetchCourse();
+  }
+
+  async function handleDeleteTopic(topicId: string) {
+    await fetch(`/api/courses/${courseId}/topics`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topicId }),
+    });
+    await fetchCourse();
+  }
+
+  async function handleDeleteOutcome(outcomeId: string) {
+    await fetch(`/api/courses/${courseId}/outcomes`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcomeId }),
+    });
     await fetchCourse();
   }
 
@@ -504,12 +551,24 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-bold text-gray-800">Learning Outcomes</h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {allOutcomes.length} outcome{allOutcomes.length !== 1 ? "s" : ""}
-                {course.topics.length > 0
-                  ? ` across ${course.topics.length} topic${course.topics.length !== 1 ? "s" : ""}`
-                  : ""}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-xs text-gray-500">
+                  {allOutcomes.length} outcome{allOutcomes.length !== 1 ? "s" : ""}
+                  {course.topics.length > 0
+                    ? ` across ${course.topics.length} topic${course.topics.length !== 1 ? "s" : ""}`
+                    : ""}
+                </p>
+                <button
+                  onClick={() => setEditMode((v) => !v)}
+                  className="text-xs font-semibold px-2 py-0.5 rounded-full transition-colors"
+                  style={{
+                    backgroundColor: editMode ? "#fecaca" : "#f3f4f6",
+                    color: editMode ? "#dc2626" : "#9ca3af",
+                  }}
+                >
+                  {editMode ? "Done" : "Edit"}
+                </button>
+              </div>
             </div>
             <button
               onClick={() => setAddingTopic(true)}
@@ -566,6 +625,9 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                   isOpen={openTopics.has(topic.id)}
                   onToggle={() => toggleTopic(topic.id)}
                   onAddOutcome={handleAddOutcome}
+                  editMode={editMode}
+                  onDeleteTopic={handleDeleteTopic}
+                  onDeleteOutcome={handleDeleteOutcome}
                 />
               ))}
             </div>
@@ -617,11 +679,11 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
               <p className="text-xs text-gray-500 mt-1">Review and deselect anything you don't want to add. Then confirm.</p>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 flex flex-col gap-3">
+            <div className="flex-1 overflow-y-auto px-6 pb-4 flex flex-col gap-3">
               {previewData.topics.map((topic, ti) => (
-                <div key={ti} className="rounded-2xl overflow-hidden" style={{ border: "1px solid #e5e3d0" }}>
+                <div key={ti} className="rounded-2xl" style={{ border: "1px solid #e5e3d0", backgroundColor: "#FEFEE8" }}>
                   <div
-                    className="flex items-center gap-2 px-4 py-2.5 cursor-pointer"
+                    className="flex items-center gap-2 px-4 py-2.5 cursor-pointer rounded-t-2xl"
                     style={{ backgroundColor: "#ede9cc" }}
                     onClick={() => setPreviewData((prev) => {
                       if (!prev) return prev;
@@ -646,7 +708,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                   {topic.outcomes.map((outcome, oi) => (
                     <div
                       key={oi}
-                      className="flex items-center gap-2 px-5 py-2 cursor-pointer hover:bg-[#f5f3e0]"
+                      className="flex items-start gap-2 px-5 py-2.5 cursor-pointer hover:bg-[#f5f3e0]"
                       style={{ borderTop: "1px solid #ede9cc" }}
                       onClick={() => setPreviewData((prev) => {
                         if (!prev) return prev;
@@ -658,7 +720,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                       })}
                     >
                       <div
-                        className="w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0"
+                        className="w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 mt-0.5"
                         style={{ borderColor: outcome.selected ? "#d4a800" : "#d1d5db", backgroundColor: outcome.selected ? "#d4a800" : "white" }}
                       >
                         {outcome.selected && (
