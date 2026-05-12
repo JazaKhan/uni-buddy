@@ -195,6 +195,12 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
   const [draftTopicName, setDraftTopicName] = useState("");
   const [savingTopic, setSavingTopic] = useState(false);
   const topicInputRef = useRef<HTMLInputElement>(null);
+  const [documents, setDocuments] = useState<Array<{ id: string; name: string; purpose: string; createdAt: string }>>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadPurpose, setUploadPurpose] = useState("");
+  const [previewData, setPreviewData] = useState<null | { topics: Array<{ name: string; selected: boolean; outcomes: Array<{ name: string; selected: boolean }> }> }>(null);
+  const [confirmingSave, setConfirmingSave] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (addingTopic) topicInputRef.current?.focus();
@@ -209,6 +215,9 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
       setOpenTopics(new Set([data.topics[0].id]));
     }
     setLoading(false);
+    fetch(`/api/courses/${courseId}/documents`)
+      .then((r) => r.json())
+      .then((docs) => { if (Array.isArray(docs)) setDocuments(docs); });
   }, [courseId, router]);
 
   useEffect(() => { fetchCourse(); }, [fetchCourse]);
@@ -244,6 +253,60 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, topicId }),
     });
+    await fetchCourse();
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !uploadPurpose) return;
+    setUploading(true);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("purpose", uploadPurpose);
+
+    const res = await fetch(`/api/courses/${courseId}/documents`, {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await res.json();
+    setUploading(false);
+
+    if (data.shouldPreview && data.extracted) {
+      setPreviewData({
+        topics: data.extracted.topics.map((t: any) => ({
+          name: t.name,
+          selected: true,
+          outcomes: t.outcomes.map((o: string) => ({ name: o, selected: true })),
+        })),
+      });
+    } else {
+      await fetchCourse();
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function handleDeleteDocument(documentId: string) {
+    await fetch(`/api/courses/${courseId}/documents`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documentId }),
+    });
+    setDocuments((prev) => prev.filter((d) => d.id !== documentId));
+  }
+
+  async function handleConfirmExtraction() {
+    if (!previewData) return;
+    setConfirmingSave(true);
+    await fetch(`/api/courses/${courseId}/documents/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topics: previewData.topics }),
+    });
+    setConfirmingSave(false);
+    setPreviewData(null);
     await fetchCourse();
   }
 
@@ -344,33 +407,96 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
             )}
           </div>
 
+          {/* Uploaded Documents */}
           <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-3" style={{ backgroundColor: "#FEFEE8" }}>
             <h2 className="text-sm font-bold text-gray-800">Uploaded Documents</h2>
-            <p className="text-xs text-gray-500">Learning outcomes, practice questions, and assessments retrieved</p>
-            <p className="text-xs text-gray-400 italic">Document upload coming soon.</p>
+            <p className="text-xs text-gray-500">Files uploaded for this course</p>
+            {documents.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">No documents uploaded yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {documents.map((doc) => (
+                  <div key={doc.id} className="flex items-center justify-between p-3 rounded-2xl bg-gray-50 border border-gray-100">
+                    <div className="flex-1 min-w-0 mr-2">
+                      <a
+                        href={doc.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-semibold text-gray-700 hover:underline truncate block"
+                      >
+                        {doc.name}
+                      </a>
+                      <p className="text-xs text-gray-400">
+                        {new Date(doc.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "#D6EEF8", color: "#374151" }}>
+                        {doc.purpose}
+                      </span>
+                      <button
+                        onClick={() => handleDeleteDocument(doc.id)}
+                        className="text-xs text-red-400 hover:text-red-600 transition-colors px-1"
+                        title="Delete"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
+          {/* Upload Document */}
           <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-4" style={{ backgroundColor: "#FEFEE8" }}>
             <h2 className="text-sm font-bold text-gray-800">Upload Document</h2>
-            <p className="text-xs text-gray-500">Clarify what you are uploading and its purpose</p>
-            <select className="px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300 bg-white">
-              <option value="">Select upload purpose…</option>
-              <option value="lecture">Lecture slides / notes</option>
-              <option value="assignment">Assignment specification</option>
-              <option value="quiz">Quiz / exam paper</option>
-              <option value="grades">Assessment grades</option>
-            </select>
-            <div className="flex flex-col items-center justify-center h-32 rounded-2xl border-2 border-dashed border-gray-300 text-gray-400 text-sm cursor-pointer hover:border-gray-400 transition-colors">
-              <span className="text-2xl mb-1">📄</span>
-              <span>Click to upload or drag & drop</span>
-              <span className="text-xs mt-1">PDF, DOCX, PNG up to 20MB</span>
-            </div>
-            <button
-              className="w-full py-2 rounded-full text-sm font-bold text-gray-800 hover:opacity-80 transition-opacity"
-              style={{ backgroundColor: "#F5C842" }}
+            <p className="text-xs text-gray-500">PDF only - AI will extract learning outcomes from lecture slides</p>
+            <select
+              value={uploadPurpose}
+              onChange={(e) => setUploadPurpose(e.target.value)}
+              className="px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300 bg-white"
             >
-              Upload
-            </button>
+              <option value="">Select upload purpose…</option>
+              <option value="outcomes">Learning Outcomes / Course Outline</option>
+              <option value="lecture">Lecture Slides / Notes</option>
+              <option value="assignment">Assignment</option>
+              <option value="quiz">Quiz / Exam</option>
+            </select>
+
+            <label
+              htmlFor="file-upload"
+              className="flex flex-col items-center justify-center h-32 rounded-2xl border-2 border-dashed border-gray-300 text-gray-400 text-sm transition-colors"
+              style={{
+                opacity: uploadPurpose && !uploading ? 1 : 0.5,
+                cursor: uploadPurpose && !uploading ? "pointer" : "not-allowed",
+                backgroundColor: "transparent",
+              }}
+            >
+              <span className="text-2xl mb-1">📄</span>
+              {uploading ? (
+                <div className="flex flex-col items-center gap-1">
+                  <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                  <span className="text-xs">Uploading & extracting…</span>
+                  <span className="text-xs text-gray-400">This can take 20–30 seconds</span>
+                </div>
+              ) : (
+                <>
+                  <span>{uploadPurpose ? "Click to upload PDF" : "Select a purpose first"}</span>
+                  <span className="text-xs mt-1">PDF up to 20MB</span>
+                </>
+              )}
+            </label>
+
+            <input
+              id="file-upload"
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf"
+              className="hidden"
+              onChange={handleUpload}
+              disabled={uploading || !uploadPurpose}
+            />
           </div>
         </div>
 
@@ -482,6 +608,92 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
           )}
         </div>
       </main>
+
+      {previewData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <div className="w-full max-w-lg rounded-3xl shadow-xl flex flex-col gap-4 h-[85vh]" style={{ backgroundColor: "#FEFEE8" }}>
+            <div className="p-6 pb-0">
+              <h2 className="text-sm font-bold text-gray-800">AI Extracted Learning Outcomes</h2>
+              <p className="text-xs text-gray-500 mt-1">Review and deselect anything you don't want to add. Then confirm.</p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 flex flex-col gap-3">
+              {previewData.topics.map((topic, ti) => (
+                <div key={ti} className="rounded-2xl overflow-hidden" style={{ border: "1px solid #e5e3d0" }}>
+                  <div
+                    className="flex items-center gap-2 px-4 py-2.5 cursor-pointer"
+                    style={{ backgroundColor: "#ede9cc" }}
+                    onClick={() => setPreviewData((prev) => {
+                      if (!prev) return prev;
+                      const topics = [...prev.topics];
+                      topics[ti] = { ...topics[ti], selected: !topics[ti].selected };
+                      return { ...prev, topics };
+                    })}
+                  >
+                    <div
+                      className="w-4 h-4 rounded border-2 flex items-center justify-center shrink-0"
+                      style={{ borderColor: topic.selected ? "#d4a800" : "#d1d5db", backgroundColor: topic.selected ? "#d4a800" : "white" }}
+                    >
+                      {topic.selected && (
+                        <svg width="8" height="6" viewBox="0 0 10 8" fill="none">
+                          <path d="M1 4l3 3 5-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                    <span className="text-xs font-bold text-gray-800">{topic.name}</span>
+                  </div>
+
+                  {topic.outcomes.map((outcome, oi) => (
+                    <div
+                      key={oi}
+                      className="flex items-center gap-2 px-5 py-2 cursor-pointer hover:bg-[#f5f3e0]"
+                      style={{ borderTop: "1px solid #ede9cc" }}
+                      onClick={() => setPreviewData((prev) => {
+                        if (!prev) return prev;
+                        const topics = [...prev.topics];
+                        const outcomes = [...topics[ti].outcomes];
+                        outcomes[oi] = { ...outcomes[oi], selected: !outcomes[oi].selected };
+                        topics[ti] = { ...topics[ti], outcomes };
+                        return { ...prev, topics };
+                      })}
+                    >
+                      <div
+                        className="w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0"
+                        style={{ borderColor: outcome.selected ? "#d4a800" : "#d1d5db", backgroundColor: outcome.selected ? "#d4a800" : "white" }}
+                      >
+                        {outcome.selected && (
+                          <svg width="7" height="5" viewBox="0 0 10 8" fill="none">
+                            <path d="M1 4l3 3 5-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-700">{outcome.name}</p>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-3 p-6 pt-0">
+              <button
+                onClick={() => { setPreviewData(null); fetchCourse(); }}
+                className="px-4 py-2 rounded-full text-xs font-semibold text-gray-500 hover:text-gray-700"
+                style={{ backgroundColor: "#e5e7eb" }}
+              >
+                Skip
+              </button>
+              <button
+                onClick={handleConfirmExtraction}
+                disabled={confirmingSave}
+                className="flex-1 py-2 rounded-full text-xs font-bold text-gray-800 hover:opacity-80 disabled:opacity-50"
+                style={{ backgroundColor: "#F5C842" }}
+              >
+                {confirmingSave ? "Saving…" : "Confirm & Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
