@@ -12,6 +12,18 @@ async function getPrismaUser(supabase: Awaited<ReturnType<typeof createClient>>)
   });
 }
 
+function weightedScore(isCorrect: boolean, confidence: string): number {
+  if (isCorrect) {
+    if (confidence === "CONFIDENT") return 1.0;
+    if (confidence === "UNSURE") return 0.7;
+    return 0.5;
+  } else {
+    if (confidence === "CONFIDENT") return 0.0;
+    if (confidence === "UNSURE") return 0.2;
+    return 0.1;
+  }
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ courseId: string }> }
@@ -52,10 +64,79 @@ export async function GET(
   }));
 
   const allOutcomes = topics.flatMap((t) => t.outcomes);
+  const allOutcomeIds = allOutcomes.map((o) => o.id);
+
   const courseMastery =
     allOutcomes.length > 0
       ? Math.round(allOutcomes.reduce((sum, o) => sum + o.mastery, 0) / allOutcomes.length)
       : 0;
+
+  // --- Mastery history: one data point per session ---
+  const sessions = await prisma.studySession.findMany({
+    where: { courseId, userId: user.id },
+    orderBy: { startedAt: "asc" },
+    include: {
+      questionAttempts: {
+        include: {
+          question: {
+            include: {
+              questionOutcomes: { select: { learningOutcomeId: true } },
+              questionTopics: {
+                include: {
+                  topic: { include: { learningOutcomes: { select: { id: true } } } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const accumulated: Array<{ isCorrect: boolean; confidence: string; outcomeIds: string[] }> = [];
+
+  const masteryHistory = sessions
+    .filter((s) => s.questionAttempts.length > 0)
+    .map((session, i) => {
+      for (const attempt of session.questionAttempts) {
+        let oIds = attempt.question.questionOutcomes.map((qo) => qo.learningOutcomeId);
+        if (oIds.length === 0) {
+          oIds = attempt.question.questionTopics.flatMap((qt) =>
+            qt.topic.learningOutcomes.map((lo) => lo.id)
+          );
+        }
+        accumulated.push({ isCorrect: attempt.isCorrect, confidence: attempt.confidence, outcomeIds: oIds });
+      }
+
+      const scoreMap: Record<string, { sum: number; count: number }> = {};
+      for (const a of accumulated) {
+        const s = weightedScore(a.isCorrect, a.confidence);
+        for (const oid of a.outcomeIds) {
+          if (!scoreMap[oid]) scoreMap[oid] = { sum: 0, count: 0 };
+          scoreMap[oid].sum += s;
+          scoreMap[oid].count += 1;
+        }
+      }
+
+      // Use outcomes that were actually touched if none are defined on the course yet
+      const idsToScore =
+        allOutcomeIds.length > 0 ? allOutcomeIds : Object.keys(scoreMap);
+
+      const scored = idsToScore
+        .filter((id) => scoreMap[id])
+        .map((id) => Math.round((scoreMap[id].sum / scoreMap[id].count) * 100));
+
+      const mastery =
+        scored.length > 0
+          ? Math.round(scored.reduce((s, v) => s + v, 0) / scored.length)
+          : 0;
+
+      return {
+        sessionNumber: i + 1,
+        date: session.startedAt.toISOString().split("T")[0],
+        mastery,
+      };
+    });
 
   return NextResponse.json({
     id: course.id,
@@ -64,6 +145,7 @@ export async function GET(
     isArchived: course.isArchived,
     courseMastery,
     topics,
+    masteryHistory,
   });
 }
 
