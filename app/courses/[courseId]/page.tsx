@@ -29,6 +29,15 @@ type CourseData = {
 
 type MasteryPoint = { sessionNumber: number; date: string; mastery: number };
 
+type ExtractedQuestion = {
+  content: string;
+  answer: string | null;
+  outcomeIds: string[];
+  outcomeSummary: string;
+  selected: boolean;
+  showAnswer: boolean;
+};
+
 function MasteryChart({ history, currentMastery }: { history: MasteryPoint[]; currentMastery: number }) {
   const W = 400;
   const H = 120;
@@ -98,7 +107,17 @@ function MasteryChart({ history, currentMastery }: { history: MasteryPoint[]; cu
   );
 }
 
-function OutcomeRow({ outcome }: { outcome: Outcome }) {
+function OutcomeRow({
+  outcome,
+  editingOutcomes,
+  onDelete,
+  isDeleting,
+}: {
+  outcome: Outcome;
+  editingOutcomes: boolean;
+  onDelete: () => void;
+  isDeleting: boolean;
+}) {
   return (
     <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-[#f5f3e0] transition-colors">
       <p className="text-xs text-gray-700 flex-1">{outcome.name}</p>
@@ -115,6 +134,16 @@ function OutcomeRow({ outcome }: { outcome: Outcome }) {
           }}
         />
       </div>
+      {editingOutcomes && (
+        <button
+          onClick={onDelete}
+          disabled={isDeleting}
+          className="text-red-400 hover:text-red-600 disabled:opacity-40 transition-colors shrink-0 w-5 text-center leading-none"
+          title="Delete outcome"
+        >
+          {isDeleting ? "…" : "×"}
+        </button>
+      )}
     </div>
   );
 }
@@ -125,12 +154,20 @@ function TopicAccordionCard({
   isOpen,
   onToggle,
   onAddOutcome,
+  editingOutcomes,
+  onDeleteTopic,
+  onDeleteOutcome,
+  deletingId,
 }: {
   topic: TopicWithOutcomes;
   index: number;
   isOpen: boolean;
   onToggle: () => void;
   onAddOutcome: (topicId: string, name: string) => Promise<void>;
+  editingOutcomes: boolean;
+  onDeleteTopic: () => void;
+  onDeleteOutcome: (outcomeId: string) => void;
+  deletingId: string | null;
 }) {
   const [addingOutcome, setAddingOutcome] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -190,6 +227,16 @@ function TopicAccordionCard({
         >
           + Add Outcome
         </button>
+        {editingOutcomes && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDeleteTopic(); }}
+            disabled={deletingId === topic.id}
+            className="text-red-500 hover:text-red-700 disabled:opacity-40 transition-colors shrink-0 text-sm font-bold leading-none px-1"
+            title="Delete topic"
+          >
+            {deletingId === topic.id ? "…" : "×"}
+          </button>
+        )}
       </div>
 
       {isOpen && (
@@ -199,7 +246,12 @@ function TopicAccordionCard({
           )}
           {topic.outcomes.map((lo, i) => (
             <div key={lo.id} style={{ borderTop: i === 0 ? "none" : "1px solid #ede9cc" }}>
-              <OutcomeRow outcome={lo} />
+              <OutcomeRow
+                outcome={lo}
+                editingOutcomes={editingOutcomes}
+                onDelete={() => onDeleteOutcome(lo.id)}
+                isDeleting={deletingId === lo.id}
+              />
             </div>
           ))}
           {addingOutcome && (
@@ -254,9 +306,12 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
   const [loading, setLoading] = useState(true);
   const [openTopics, setOpenTopics] = useState<Set<string>>(new Set());
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [addingTopic, setAddingTopic] = useState(false);
   const [draftTopicName, setDraftTopicName] = useState("");
   const [savingTopic, setSavingTopic] = useState(false);
+  const [editingOutcomes, setEditingOutcomes] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const topicInputRef = useRef<HTMLInputElement>(null);
   const [masteryHistory, setMasteryHistory] = useState<MasteryPoint[]>([]);
   const [documents, setDocuments] = useState<Array<{ id: string; name: string; purpose: string; createdAt: string }>>([]);
@@ -264,6 +319,8 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
   const [uploadPurpose, setUploadPurpose] = useState("");
   const [previewData, setPreviewData] = useState<null | { topics: Array<{ name: string; selected: boolean; outcomes: Array<{ name: string; selected: boolean }> }> }>(null);
   const [confirmingSave, setConfirmingSave] = useState(false);
+  const [questionPreviewData, setQuestionPreviewData] = useState<ExtractedQuestion[] | null>(null);
+  const [confirmingQuestions, setConfirmingQuestions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -325,6 +382,20 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
     await fetchCourse();
   }
 
+  async function handleDeleteTopic(topicId: string) {
+    setDeletingId(topicId);
+    await fetch(`/api/courses/${courseId}/topics/${topicId}`, { method: "DELETE" });
+    setDeletingId(null);
+    await fetchCourse();
+  }
+
+  async function handleDeleteOutcome(outcomeId: string) {
+    setDeletingId(outcomeId);
+    await fetch(`/api/courses/${courseId}/outcomes/${outcomeId}`, { method: "DELETE" });
+    setDeletingId(null);
+    await fetchCourse();
+  }
+
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !uploadPurpose) return;
@@ -350,6 +421,14 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
           outcomes: t.outcomes.map((o: string) => ({ name: o, selected: true })),
         })),
       });
+    } else if (data.shouldPreviewQuestions && data.extractedQuestions) {
+      setQuestionPreviewData(
+        data.extractedQuestions.map((q: any) => ({
+          ...q,
+          selected: true,
+          showAnswer: false,
+        }))
+      );
     } else {
       await fetchCourse();
     }
@@ -379,8 +458,33 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
     await fetchCourse();
   }
 
+  async function handleConfirmQuestions() {
+    if (!questionPreviewData) return;
+    setConfirmingQuestions(true);
+    const selected = questionPreviewData.filter((q) => q.selected);
+    await fetch(`/api/courses/${courseId}/documents/confirm-questions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        questions: selected.map((q) => ({
+          content: q.content,
+          answer: q.answer,
+          outcomeIds: q.outcomeIds,
+        })),
+      }),
+    });
+    setConfirmingQuestions(false);
+    setQuestionPreviewData(null);
+    await fetchCourse();
+  }
+
   async function confirmArchive() {
     await fetch(`/api/courses/${courseId}`, { method: "PATCH" });
+    router.push("/dashboard");
+  }
+
+  async function confirmDelete() {
+    await fetch(`/api/courses/${courseId}`, { method: "DELETE" });
     router.push("/dashboard");
   }
 
@@ -589,14 +693,24 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
 
         <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-4" style={{ backgroundColor: "#FEFEE8" }}>
           <div className="flex items-center justify-between">
-            <div>
+            <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-sm font-bold text-gray-800">Learning Outcomes</h2>
-              <p className="text-xs text-gray-500 mt-0.5">
+              <p className="text-xs text-gray-500">
                 {allOutcomes.length} outcome{allOutcomes.length !== 1 ? "s" : ""}
                 {course.topics.length > 0
                   ? ` across ${course.topics.length} topic${course.topics.length !== 1 ? "s" : ""}`
                   : ""}
               </p>
+              <button
+                onClick={() => setEditingOutcomes((v) => !v)}
+                className="text-xs font-bold px-3 py-1 rounded-full transition-colors"
+                style={{
+                  backgroundColor: editingOutcomes ? "#F5C842" : "#e5e7eb",
+                  color: editingOutcomes ? "#1f2937" : "#6b7280",
+                }}
+              >
+                {editingOutcomes ? "Done" : "Edit"}
+              </button>
             </div>
             <button
               onClick={() => setAddingTopic(true)}
@@ -653,6 +767,10 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                   isOpen={openTopics.has(topic.id)}
                   onToggle={() => toggleTopic(topic.id)}
                   onAddOutcome={handleAddOutcome}
+                  editingOutcomes={editingOutcomes}
+                  onDeleteTopic={() => handleDeleteTopic(topic.id)}
+                  onDeleteOutcome={handleDeleteOutcome}
+                  deletingId={deletingId}
                 />
               ))}
             </div>
@@ -666,15 +784,26 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
         </div>
 
         <div className="flex justify-end">
-          {!showArchiveConfirm ? (
-            <button
-              onClick={() => setShowArchiveConfirm(true)}
-              className="px-4 py-2 rounded-full text-xs font-semibold text-gray-500 hover:text-gray-700 transition-colors"
-              style={{ backgroundColor: "#e5e7eb" }}
-            >
-              Archive Course
-            </button>
-          ) : (
+          {!showArchiveConfirm && !showDeleteConfirm && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowArchiveConfirm(true)}
+                className="px-4 py-2 rounded-full text-xs font-semibold text-gray-500 hover:text-gray-700 transition-colors"
+                style={{ backgroundColor: "#e5e7eb" }}
+              >
+                Archive Course
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="px-4 py-2 rounded-full text-xs font-semibold text-white hover:opacity-80 transition-opacity"
+                style={{ backgroundColor: "#ef4444" }}
+              >
+                Delete Course
+              </button>
+            </div>
+          )}
+
+          {showArchiveConfirm && (
             <div className="flex items-center gap-3 px-5 py-3 rounded-2xl shadow" style={{ backgroundColor: "#FEFEE8" }}>
               <p className="text-sm text-gray-700">Are you sure you want to archive this course?</p>
               <button
@@ -693,8 +822,130 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
               </button>
             </div>
           )}
+
+          {showDeleteConfirm && (
+            <div className="flex items-center gap-3 px-5 py-3 rounded-2xl shadow" style={{ backgroundColor: "#FEFEE8" }}>
+              <div>
+                <p className="text-sm font-semibold text-red-600">Delete this course permanently?</p>
+                <p className="text-xs text-gray-500 mt-0.5">This will erase all topics, outcomes, questions, and session history. It cannot be recovered.</p>
+              </div>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-1.5 rounded-full text-xs font-bold text-white hover:opacity-80 shrink-0"
+                style={{ backgroundColor: "#ef4444" }}
+              >
+                Yes, Delete
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-1.5 rounded-full text-xs font-bold text-gray-500 hover:text-gray-700 shrink-0"
+                style={{ backgroundColor: "#e5e7eb" }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       </main>
+
+      {questionPreviewData && (() => {
+        const outcomeMap = new Map(allOutcomes.map((o) => [o.id, o.name]));
+        const selectedCount = questionPreviewData.filter((q) => q.selected).length;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+            <div className="w-full max-w-lg rounded-3xl shadow-xl flex flex-col h-[85vh]" style={{ backgroundColor: "#FEFEE8" }}>
+              <div className="p-6 pb-3 shrink-0">
+                <h2 className="text-sm font-bold text-gray-800">AI Extracted Questions</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  {questionPreviewData.length} question{questionPreviewData.length !== 1 ? "s" : ""} found — deselect any you don't want to add.
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 flex flex-col gap-3 pb-2">
+                {questionPreviewData.map((q, qi) => (
+                  <div key={qi} className="rounded-2xl overflow-hidden" style={{ border: "1px solid #e5e3d0" }}>
+                    <div
+                      className="flex items-start gap-3 px-4 py-3 cursor-pointer"
+                      style={{ backgroundColor: q.selected ? "#F5C842" : "#ede9cc" }}
+                      onClick={() => setQuestionPreviewData((prev) => {
+                        if (!prev) return prev;
+                        const next = [...prev];
+                        next[qi] = { ...next[qi], selected: !next[qi].selected };
+                        return next;
+                      })}
+                    >
+                      <div
+                        className="w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5"
+                        style={{ borderColor: q.selected ? "#d4a800" : "#d1d5db", backgroundColor: q.selected ? "#d4a800" : "white" }}
+                      >
+                        {q.selected && (
+                          <svg width="8" height="6" viewBox="0 0 10 8" fill="none">
+                            <path d="M1 4l3 3 5-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </div>
+                      <p className="text-xs font-semibold text-gray-800 flex-1">{q.content}</p>
+                    </div>
+
+                    <div className="px-4 py-2.5" style={{ backgroundColor: "#FEFEE8" }}>
+                      {q.outcomeIds.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {q.outcomeIds.map((id) => (
+                            <span key={id} className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "#D6EEF8", color: "#374151" }}>
+                              {outcomeMap.get(id) ?? id}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 italic">{q.outcomeSummary}</p>
+                      )}
+
+                      {q.answer !== null && (
+                        <div className="mt-2">
+                          <button
+                            onClick={() => setQuestionPreviewData((prev) => {
+                              if (!prev) return prev;
+                              const next = [...prev];
+                              next[qi] = { ...next[qi], showAnswer: !next[qi].showAnswer };
+                              return next;
+                            })}
+                            className="text-xs font-semibold text-gray-500 hover:text-gray-700 transition-colors"
+                          >
+                            {q.showAnswer ? "Hide answer ▲" : "Show answer ▼"}
+                          </button>
+                          {q.showAnswer && (
+                            <div className="mt-1.5 px-3 py-2 rounded-xl text-xs text-gray-700 bg-gray-100">
+                              {q.answer}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-3 p-6 pt-3 shrink-0">
+                <button
+                  onClick={() => { setQuestionPreviewData(null); fetchCourse(); }}
+                  className="px-4 py-2 rounded-full text-xs font-semibold text-gray-500 hover:text-gray-700"
+                  style={{ backgroundColor: "#e5e7eb" }}
+                >
+                  Skip
+                </button>
+                <button
+                  onClick={handleConfirmQuestions}
+                  disabled={confirmingQuestions || selectedCount === 0}
+                  className="flex-1 py-2 rounded-full text-xs font-bold text-gray-800 hover:opacity-80 disabled:opacity-50"
+                  style={{ backgroundColor: "#F5C842" }}
+                >
+                  {confirmingQuestions ? "Saving…" : `Add ${selectedCount} Question${selectedCount !== 1 ? "s" : ""}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {previewData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>

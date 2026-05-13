@@ -8,6 +8,7 @@ type Outcome = { id: string; name: string };
 type Topic = { id: string; name: string; questionCount: number; outcomes: Outcome[] };
 
 type Mode = "topic" | "outcome";
+type DocStatus = "loading" | "none" | "no_notes" | "has_notes";
 
 export default function SessionSetupPage({ params }: { params: Promise<{ courseId: string }> }) {
   const { courseId } = use(params);
@@ -17,6 +18,10 @@ export default function SessionSetupPage({ params }: { params: Promise<{ courseI
   const [courseCode, setCourseCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<Mode>("topic");
+  const [aiMode, setAiMode] = useState(false);
+  const [questionCount, setQuestionCount] = useState(10);
+  const [customCount, setCustomCount] = useState(false);
+  const [docStatus, setDocStatus] = useState<DocStatus>("loading");
 
   // Topic mode state
   const [selectedTopics, setSelectedTopics] = useState<Set<string>>(new Set());
@@ -26,14 +31,24 @@ export default function SessionSetupPage({ params }: { params: Promise<{ courseI
   const [openTopics, setOpenTopics] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    fetch(`/api/courses/${courseId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        setTopics(data.topics ?? []);
-        setCourseCode(data.code ?? null);
-        // Open first topic by default in outcome mode
-        if (data.topics?.length > 0) setOpenTopics(new Set([data.topics[0].id]));
+    Promise.all([
+      fetch(`/api/courses/${courseId}`).then((r) => r.json()),
+      fetch(`/api/courses/${courseId}/documents`).then((r) => r.ok ? r.json() : []),
+    ])
+      .then(([courseData, docs]) => {
+        setTopics(courseData.topics ?? []);
+        setCourseCode(courseData.code ?? null);
+        if (courseData.topics?.length > 0) setOpenTopics(new Set([courseData.topics[0].id]));
         setLoading(false);
+
+        const allDocs: { purpose: string }[] = Array.isArray(docs) ? docs : [];
+        if (allDocs.length === 0) {
+          setDocStatus("none");
+        } else if (allDocs.some((d) => d.purpose === "lecture" || d.purpose === "outcomes")) {
+          setDocStatus("has_notes");
+        } else {
+          setDocStatus("no_notes");
+        }
       })
       .catch(() => router.push("/dashboard"));
   }, [courseId, router]);
@@ -71,10 +86,11 @@ export default function SessionSetupPage({ params }: { params: Promise<{ courseI
   }
 
   function startSession() {
+    const aiParam = aiMode ? `&ai=true&count=${questionCount}` : "";
     if (mode === "topic") {
-      router.push(`/courses/${courseId}/session?topics=${Array.from(selectedTopics).join(",")}`);
+      router.push(`/courses/${courseId}/session?topics=${Array.from(selectedTopics).join(",")}${aiParam}`);
     } else {
-      router.push(`/courses/${courseId}/session?outcomes=${Array.from(selectedOutcomes).join(",")}`);
+      router.push(`/courses/${courseId}/session?outcomes=${Array.from(selectedOutcomes).join(",")}${aiParam}`);
     }
   }
 
@@ -270,6 +286,82 @@ export default function SessionSetupPage({ params }: { params: Promise<{ courseI
               )}
             </>
           )}
+
+          {/* Question Source toggle */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-semibold text-white">Question Source:</span>
+              <div className="flex gap-1 p-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.15)" }}>
+                {[{ label: "My Questions", value: false }, { label: "✨ AI Generated", value: true }].map(({ label, value }) => (
+                  <button
+                    key={String(value)}
+                    onClick={() => setAiMode(value)}
+                    className="px-4 py-1.5 rounded-full text-xs font-bold transition-all"
+                    style={{
+                      backgroundColor: aiMode === value ? "#F5C842" : "transparent",
+                      color: aiMode === value ? "#1f2937" : "rgba(255,255,255,0.8)",
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {aiMode && (
+              <>
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold text-white/80">Number of questions:</span>
+                  <div className="flex gap-2 flex-wrap">
+                    {[5, 10, 15, 20].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => { setQuestionCount(n); setCustomCount(false); }}
+                        className="px-4 py-1.5 rounded-full text-xs font-bold transition-all"
+                        style={{
+                          backgroundColor: !customCount && questionCount === n ? "#F5C842" : "rgba(0,0,0,0.15)",
+                          color: !customCount && questionCount === n ? "#1f2937" : "rgba(255,255,255,0.8)",
+                        }}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setCustomCount(true)}
+                      className="px-4 py-1.5 rounded-full text-xs font-bold transition-all"
+                      style={{
+                        backgroundColor: customCount ? "#F5C842" : "rgba(0,0,0,0.15)",
+                        color: customCount ? "#1f2937" : "rgba(255,255,255,0.8)",
+                      }}
+                    >
+                      Custom
+                    </button>
+                    {customCount && (
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={questionCount}
+                        onChange={(e) => setQuestionCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
+                        className="w-16 px-2 py-1 rounded-xl text-xs font-bold text-gray-800 outline-none focus:ring-2 focus:ring-yellow-300"
+                        style={{ backgroundColor: "#FEFEE8" }}
+                      />
+                    )}
+                  </div>
+                </div>
+                {docStatus === "has_notes" ? (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-semibold text-green-800" style={{ backgroundColor: "#dcfce7", border: "1px solid #86efac" }}>
+                    ✓ Using your uploaded course notes to generate questions.
+                  </div>
+                ) : docStatus === "none" || docStatus === "no_notes" ? (
+                  <div className="px-4 py-3 rounded-2xl text-xs text-yellow-900" style={{ backgroundColor: "#fef9c3", border: "1px solid #fde047" }}>
+                    <p className="font-bold mb-0.5">⚠️ No course notes uploaded yet.</p>
+                    <p className="font-normal opacity-80">AI can still generate questions from your learning outcomes, but they'll be more generic. Upload lecture slides for better questions.</p>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
 
           <div className="flex gap-3">
             <button
