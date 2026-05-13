@@ -46,6 +46,9 @@ export async function GET(
       id: q.id,
       content: q.content,
       answer: q.answer,
+      type: q.type,
+      options: q.options ?? null,
+      blanks: q.blanks ?? null,
       mastery,
       topics: q.questionTopics.map((qt) => ({ id: qt.topic.id, name: qt.topic.name })),
       outcomes: q.questionOutcomes.map((qo) => ({
@@ -69,13 +72,16 @@ export async function POST(
   const course = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
   if (!course) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const { content, answer, topicIds, outcomeIds } = await req.json();
+  const { content, answer, topicIds, outcomeIds, type, options, blanks } = await req.json();
   if (!content?.trim()) return NextResponse.json({ error: "content required" }, { status: 400 });
 
   const question = await prisma.question.create({
     data: {
       content: content.trim(),
       answer: answer?.trim() || null,
+      type: type ?? "WRITTEN",
+      options: options ?? undefined,
+      blanks: blanks ?? undefined,
       courseId,
       questionTopics: {
         create: (topicIds ?? []).map((topicId: string) => ({ topicId })),

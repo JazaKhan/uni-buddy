@@ -64,10 +64,19 @@ model LearningOutcome {
   masteryScores    MasteryScore[]
 }
 
+enum QuestionType {
+  WRITTEN
+  MULTIPLE_CHOICE
+  FILL_IN_BLANK
+}
+
 model Question {
-  id      String  @id @default(cuid())
+  id      String       @id @default(cuid())
   content String
   answer  String?
+  type    QuestionType @default(WRITTEN)
+  options Json?
+  blanks  Json?
 
   courseId String
   course   Course @relation(fields: [courseId], references: [id])

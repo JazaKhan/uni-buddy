@@ -140,6 +140,72 @@ Rules:
     }
   }
 
+  if (purpose === "quiz") {
+    try {
+      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+      const base64 = Buffer.from(new Uint8Array(fileBuffer)).toString("base64");
+
+      const courseOutcomes = await prisma.learningOutcome.findMany({
+        where: { courseId },
+        select: { id: true, name: true, topic: { select: { name: true } } },
+      });
+
+      const outcomeList = courseOutcomes.length > 0
+        ? courseOutcomes.map((o) => `- ID: ${o.id} | Topic: ${o.topic.name} | Outcome: ${o.name}`).join("\n")
+        : null;
+
+      const prompt = `You are analyzing a university exam or quiz document. Extract every practice question from this document.
+${outcomeList
+  ? `\nThe course has these learning outcomes:\n${outcomeList}\n\nFor each question, map it to the most relevant outcome IDs from the list above. Only use IDs from the list.`
+  : "\nThe course has no learning outcomes yet — set outcomeIds to [] for all questions."}
+
+Return ONLY a valid JSON object in this exact format, no other text:
+{
+  "questions": [
+    {
+      "content": "Full question text including any sub-parts",
+      "answer": "Answer if visible in the document, otherwise null",
+      "outcomeIds": ["outcomeId1"],
+      "outcomeSummary": "Brief description of what this question tests"
+    }
+  ]
+}
+
+Rules:
+- Include every distinct question in the document
+- Preserve full question text including any sub-parts (a, b, c etc.)
+- If an answer key is present in the document, include it; otherwise use null
+- outcomeIds must only contain IDs from the provided list; use [] if nothing matches
+- outcomeSummary should be a single sentence describing the skill or concept tested`;
+
+      const response = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 4096,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "document",
+                source: { type: "base64", media_type: "application/pdf", data: base64 },
+              },
+              { type: "text", text: prompt },
+            ],
+          },
+        ],
+      });
+
+      const text = response.content[0].type === "text" ? response.content[0].text : "";
+      const clean = text.replace(/```json|```/g, "").trim();
+      const extracted = JSON.parse(clean);
+
+      return NextResponse.json({ document, extractedQuestions: extracted.questions, shouldPreviewQuestions: true });
+    } catch (err) {
+      console.error("Quiz extraction error:", err);
+      return NextResponse.json({ document, shouldPreviewQuestions: false });
+    }
+  }
+
   return NextResponse.json({ document, shouldPreview: false });
 }
 

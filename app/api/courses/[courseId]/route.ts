@@ -166,3 +166,33 @@ export async function PATCH(
   if (result.count === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ success: true });
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ courseId: string }> }
+) {
+  const { courseId } = await params;
+  const supabase = await createClient();
+  const user = await getPrismaUser(supabase);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const course = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
+  if (!course) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const outcomeIds = (await prisma.learningOutcome.findMany({ where: { courseId }, select: { id: true } })).map((o) => o.id);
+  const questionIds = (await prisma.question.findMany({ where: { courseId }, select: { id: true } })).map((q) => q.id);
+  const sessionIds = (await prisma.studySession.findMany({ where: { courseId }, select: { id: true } })).map((s) => s.id);
+
+  await prisma.questionAttempt.deleteMany({ where: { sessionId: { in: sessionIds } } });
+  await prisma.masteryScore.deleteMany({ where: { learningOutcomeId: { in: outcomeIds } } });
+  await prisma.questionOutcome.deleteMany({ where: { questionId: { in: questionIds } } });
+  await prisma.questionTopic.deleteMany({ where: { questionId: { in: questionIds } } });
+  await prisma.question.deleteMany({ where: { courseId } });
+  await prisma.studySession.deleteMany({ where: { courseId } });
+  await prisma.learningOutcome.deleteMany({ where: { courseId } });
+  await prisma.topic.deleteMany({ where: { courseId } });
+  await prisma.document.deleteMany({ where: { courseId } });
+  await prisma.course.delete({ where: { id: courseId } });
+
+  return NextResponse.json({ success: true });
+}
