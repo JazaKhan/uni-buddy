@@ -60,6 +60,7 @@ export async function GET(
       name: lo.name,
       description: lo.description,
       mastery: lo.masteryScores[0]?.score ?? 0,
+      hasMastery: lo.masteryScores.length > 0,
     })),
   }));
 
@@ -138,6 +139,37 @@ export async function GET(
       };
     });
 
+  // Hybrid top-10: practiced outcomes sorted worst→best, then unpracticed in topic order
+  const practicedTop10 = course.topics
+    .flatMap((topic) =>
+      topic.learningOutcomes
+        .filter((lo) => lo.masteryScores.length > 0)
+        .map((lo) => ({
+          id: lo.id,
+          name: lo.name,
+          description: lo.description,
+          mastery: lo.masteryScores[0].score as number,
+          practiced: true,
+        }))
+    )
+    .sort((a, b) => a.mastery - b.mastery);
+
+  const practicedIds = new Set(practicedTop10.map((o) => o.id));
+
+  const unpracticedTop10 = course.topics.flatMap((topic) =>
+    topic.learningOutcomes
+      .filter((lo) => !practicedIds.has(lo.id))
+      .map((lo) => ({
+        id: lo.id,
+        name: lo.name,
+        description: lo.description,
+        mastery: null as number | null,
+        practiced: false,
+      }))
+  );
+
+  const top10 = [...practicedTop10, ...unpracticedTop10].slice(0, 10);
+
   return NextResponse.json({
     id: course.id,
     name: course.name,
@@ -146,6 +178,7 @@ export async function GET(
     courseMastery,
     topics,
     masteryHistory,
+    top10,
   });
 }
 

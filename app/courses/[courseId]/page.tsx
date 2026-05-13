@@ -10,6 +10,15 @@ type Outcome = {
   name: string;
   description: string | null;
   mastery: number;
+  hasMastery: boolean;
+};
+
+type Top10Outcome = {
+  id: string;
+  name: string;
+  description: string | null;
+  mastery: number | null;
+  practiced: boolean;
 };
 
 type TopicWithOutcomes = {
@@ -25,6 +34,7 @@ type CourseData = {
   isArchived: boolean;
   courseMastery: number;
   topics: TopicWithOutcomes[];
+  top10: Top10Outcome[];
 };
 
 type MasteryPoint = { sessionNumber: number; date: string; mastery: number };
@@ -502,7 +512,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
   if (!course) return null;
 
   const allOutcomes = course.topics.flatMap((t) => t.outcomes);
-  const worstOutcomes = [...allOutcomes].sort((a, b) => a.mastery - b.mastery).slice(0, 10);
+  const top10 = course.top10 ?? [];
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#8FAF76" }}>
@@ -572,26 +582,32 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
           <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-3" style={{ backgroundColor: "#FEFEE8" }}>
             <h2 className="text-sm font-bold text-gray-800">Top 10 Outcomes to Practice</h2>
             <p className="text-xs text-gray-500">Ranked worst to best — focus here first</p>
-            {worstOutcomes.length === 0 ? (
-              <p className="text-xs text-gray-400 italic">Complete a study session to see recommendations.</p>
+            {top10.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">Practice some questions first — your weakest outcomes will appear here.</p>
             ) : (
               <div className="flex flex-col gap-2 overflow-y-auto max-h-64">
-                {worstOutcomes.map((lo, i) => (
-                  <div key={lo.id} className="flex items-center gap-3">
+                {top10.map((lo, i) => (
+                  <div key={lo.id} className={`flex items-center gap-3 ${lo.practiced ? "" : "opacity-60"}`}>
                     <span className="text-xs font-bold text-gray-400 w-5">{i + 1}</span>
                     <div className="flex-1">
                       <p className="text-xs text-gray-700">{lo.name}</p>
                       <div className="w-full h-1.5 rounded-full bg-gray-200 mt-1">
-                        <div
-                          className="h-1.5 rounded-full"
-                          style={{
-                            width: `${lo.mastery}%`,
-                            backgroundColor: lo.mastery < 50 ? "#FF6B6B" : lo.mastery < 70 ? "#F5C842" : "#5CB85C",
-                          }}
-                        />
+                        {lo.practiced && lo.mastery !== null ? (
+                          <div
+                            className="h-1.5 rounded-full"
+                            style={{
+                              width: `${lo.mastery}%`,
+                              backgroundColor: lo.mastery < 50 ? "#FF6B6B" : lo.mastery < 70 ? "#F5C842" : "#5CB85C",
+                            }}
+                          />
+                        ) : null}
                       </div>
                     </div>
-                    <span className="text-xs text-gray-500">{lo.mastery}%</span>
+                    {lo.practiced && lo.mastery !== null ? (
+                      <span className="text-xs text-gray-500 shrink-0">{lo.mastery}%</span>
+                    ) : (
+                      <span className="text-xs text-gray-400 italic shrink-0">Not practiced yet</span>
+                    )}
                   </div>
                 ))}
               </div>

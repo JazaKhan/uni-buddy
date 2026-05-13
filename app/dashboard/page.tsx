@@ -187,8 +187,8 @@ export default function DashboardPage() {
           .flatMap((detail, i) => {
             if (!detail?.topics) return [];
             const course = data[i] as Course;
-            return (detail.topics as { id: string; name: string; outcomes: { mastery: number }[] }[])
-              .filter((t) => t.outcomes.length > 0)
+            return (detail.topics as { id: string; name: string; outcomes: { mastery: number; hasMastery: boolean }[] }[])
+              .filter((t) => t.outcomes.length > 0 && t.outcomes.some((o) => o.hasMastery))
               .map((t) => {
                 const avgMastery = Math.round(
                   t.outcomes.reduce((sum, o) => sum + o.mastery, 0) / t.outcomes.length
@@ -292,7 +292,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : topicsToFocus.length === 0 ? (
-              <p className="text-xs text-gray-400 italic">Complete a study session to see which topics to focus on.</p>
+              <p className="text-xs text-gray-400 italic">Practice some questions first — topics you&apos;ve attempted will appear here ranked by mastery.</p>
             ) : (
               <div className="flex flex-col gap-3">
                 {topicsToFocus.map((topic) => (
