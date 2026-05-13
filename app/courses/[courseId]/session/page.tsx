@@ -15,9 +15,17 @@ type Question = {
   type: QuestionType;
   options: MCOption[] | null;
   blanks: string[] | null;
+  isAiGenerated: boolean;
+  // these are only present on unsaved AI questions
+  outcomeIds?: string[];
+  topicIds?: string[];
   topics: { id: string; name: string }[];
   outcomes: { id: string; name: string }[];
 };
+
+function genTempId() {
+  return "tmp_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 
 function SessionContent({ courseId }: { courseId: string }) {
   const router = useRouter();
@@ -26,8 +34,11 @@ function SessionContent({ courseId }: { courseId: string }) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMsg, setLoadingMsg] = useState("Setting up session…");
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
   const [logging, setLogging] = useState(false);
+  const [noNotesBanner, setNoNotesBanner] = useState(false);
   const initialized = useRef(false);
 
   // Written state
@@ -54,31 +65,60 @@ function SessionContent({ courseId }: { courseId: string }) {
     async function init() {
       const topicsParam = searchParams.get("topics") ?? "";
       const outcomesParam = searchParams.get("outcomes") ?? "";
+      const isAiMode = searchParams.get("ai") === "true";
       const selectedTopicIds = topicsParam.split(",").filter(Boolean);
       const selectedOutcomeIds = outcomesParam.split(",").filter(Boolean);
 
-      const [questionsRes, sessionRes, courseRes] = await Promise.all([
-        fetch(`/api/courses/${courseId}/questions`),
-        fetch(`/api/courses/${courseId}/sessions`, { method: "POST" }),
-        fetch(`/api/courses/${courseId}`),
-      ]);
-
-      if (!questionsRes.ok || !sessionRes.ok || !courseRes.ok) { router.push("/dashboard"); return; }
-
-      const allQuestions: Question[] = await questionsRes.json();
+      const sessionRes = await fetch(`/api/courses/${courseId}/sessions`, { method: "POST" });
+      if (!sessionRes.ok) { router.push("/dashboard"); return; }
       const { id } = await sessionRes.json();
-      await courseRes.json();
+      setSessionId(id);
 
-      let filtered = allQuestions;
-      if (selectedOutcomeIds.length > 0) {
-        filtered = allQuestions.filter((q) => q.outcomes.some((o) => selectedOutcomeIds.includes(o.id)));
-      } else if (selectedTopicIds.length > 0) {
-        filtered = allQuestions.filter((q) => q.topics.some((t) => selectedTopicIds.includes(t.id)));
+      if (isAiMode) {
+        setLoadingMsg("✨ Generating questions…");
+        const count = parseInt(searchParams.get("count") ?? "10", 10);
+        const genRes = await fetch(`/api/courses/${courseId}/generate-questions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topicIds: selectedTopicIds, outcomeIds: selectedOutcomeIds, count }),
+        });
+        if (!genRes.ok) {
+          const errData = await genRes.json().catch(() => ({}));
+          setLoadError(errData.error ?? "AI generation failed. Check your learning outcomes and try again.");
+          setLoading(false);
+          return;
+        }
+        const { questions: rawQs, warning } = await genRes.json();
+        if (warning === "no_notes") setNoNotesBanner(true);
+
+        const aiQuestions: Question[] = (rawQs as any[]).map((q) => ({
+          ...q,
+          id: genTempId(),
+          isAiGenerated: true,
+          topics: [],
+          outcomes: [],
+        }));
+
+        const shuffled = [...aiQuestions].sort(() => Math.random() - 0.5);
+        setQuestions(shuffled);
+        setLoading(false);
+        return;
       }
 
-      const shuffled = [...filtered].sort(() => Math.random() - 0.5);
+      // Normal mode — filtering is done server-side by the questions API.
+      const qParams = new URLSearchParams();
+      if (selectedOutcomeIds.length > 0) qParams.set("outcomeIds", selectedOutcomeIds.join(","));
+      else if (selectedTopicIds.length > 0) qParams.set("topicIds", selectedTopicIds.join(","));
+      const paramStr = qParams.toString();
+
+      const questionsRes = await fetch(
+        `/api/courses/${courseId}/questions${paramStr ? `?${paramStr}` : ""}`
+      );
+      if (!questionsRes.ok) { router.push("/dashboard"); return; }
+
+      const allQuestions: Question[] = await questionsRes.json();
+      const shuffled = [...allQuestions].sort(() => Math.random() - 0.5);
       setQuestions(shuffled);
-      setSessionId(id);
       setLoading(false);
     }
 
@@ -102,13 +142,44 @@ function SessionContent({ courseId }: { courseId: string }) {
 
   const question = questions[index];
 
+  // Persist AI question to DB, replace temp id with real id
+  async function persistAiQuestion(q: Question): Promise<string> {
+    const res = await fetch(`/api/courses/${courseId}/questions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: q.content,
+        answer: q.answer,
+        type: q.type,
+        options: q.options,
+        blanks: q.blanks,
+        outcomeIds: q.outcomeIds ?? [],
+        topicIds: q.topicIds ?? [],
+        isAiGenerated: true,
+      }),
+    });
+    if (!res.ok) return q.id;
+    const saved = await res.json();
+    // Replace temp id in questions array
+    setQuestions((prev) =>
+      prev.map((pq) => (pq.id === q.id ? { ...pq, id: saved.id } : pq))
+    );
+    return saved.id;
+  }
+
   async function logAttempt(isCorrect: boolean, confidence: Confidence) {
     if (!sessionId || !question) return;
     setLogging(true);
+
+    let questionId = question.id;
+    if (question.isAiGenerated && question.id.startsWith("tmp_")) {
+      questionId = await persistAiQuestion(question);
+    }
+
     await fetch(`/api/sessions/${sessionId}/attempts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ questionId: question.id, isCorrect, confidence }),
+      body: JSON.stringify({ questionId, isCorrect, confidence }),
     });
     setLogging(false);
 
@@ -162,19 +233,22 @@ function SessionContent({ courseId }: { courseId: string }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center" style={{ backgroundColor: "#8FAF76" }}>
-        <p className="text-white font-semibold">Setting up session…</p>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3" style={{ backgroundColor: "#8FAF76" }}>
+        <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+        <p className="text-white font-semibold">{loadingMsg}</p>
       </div>
     );
   }
 
-  if (!question) {
+  if (loadError || !question) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center" style={{ backgroundColor: "#8FAF76" }}>
-        <p className="text-white font-bold">No questions available for the selected topics.</p>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-6" style={{ backgroundColor: "#8FAF76" }}>
+        <p className="text-white font-bold text-center">
+          {loadError ?? "No questions available for the selected topics."}
+        </p>
         <button
           onClick={() => router.back()}
-          className="mt-4 px-6 py-2 rounded-full text-sm font-bold text-gray-800"
+          className="px-6 py-2 rounded-full text-sm font-bold text-gray-800"
           style={{ backgroundColor: "#FEFEE8" }}
         >
           ← Back
@@ -193,13 +267,33 @@ function SessionContent({ courseId }: { courseId: string }) {
         }
       />
 
+      {noNotesBanner && (
+        <div className="flex items-center justify-between gap-3 px-5 py-2.5 text-xs font-medium text-yellow-900" style={{ backgroundColor: "#fef9c3", borderBottom: "1px solid #fde047" }}>
+          <span>✨ Questions generated from your learning outcomes — upload lecture notes for more targeted practice.</span>
+          <button
+            onClick={() => setNoNotesBanner(false)}
+            className="shrink-0 text-yellow-700 hover:text-yellow-900 font-bold leading-none"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <main className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-2xl p-4 rounded-3xl shadow-xl" style={{ backgroundColor: "#7a9a63" }}>
           <div className="rounded-2xl p-6 flex flex-col gap-5" style={{ backgroundColor: "#FEFEE8" }}>
-            <div className="flex justify-between">
-              <span className="px-3 py-1 rounded-full text-xs font-bold text-gray-700" style={{ border: "1.5px solid #d1d5db" }}>
-                Question {index + 1}
-              </span>
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1 rounded-full text-xs font-bold text-gray-700" style={{ border: "1.5px solid #d1d5db" }}>
+                  Question {index + 1}
+                </span>
+                {question.isAiGenerated && (
+                  <span className="px-2.5 py-1 rounded-full text-xs font-bold text-gray-800" style={{ backgroundColor: "#F5C842" }}>
+                    ✨ AI
+                  </span>
+                )}
+              </div>
               <span className="px-3 py-1 rounded-full text-xs font-bold text-gray-700" style={{ border: "1.5px solid #d1d5db" }}>
                 {index + 1}/{questions.length}
               </span>
@@ -255,7 +349,11 @@ function SessionContent({ courseId }: { courseId: string }) {
               <>
                 <div className="p-4 rounded-2xl bg-green-50 border border-green-200">
                   <p className="text-xs font-bold text-green-700 mb-1">CORRECT ANSWER</p>
-                  <p className="text-sm text-gray-800">{question.answer ?? "No answer provided."}</p>
+                  {question.answer ? (
+                    <p className="text-sm text-gray-800">{question.answer}</p>
+                  ) : (
+                    <p className="text-sm text-gray-500 italic">No answer recorded yet — mark yourself correct or incorrect based on your own judgement.</p>
+                  )}
                 </div>
                 <p className="text-xs font-semibold text-gray-600 text-center">How did you do?</p>
                 <div className="flex gap-3">
@@ -325,7 +423,7 @@ function SessionContent({ courseId }: { courseId: string }) {
                   {checked && (
                     <>
                       <div className={`px-4 py-2 rounded-2xl text-sm font-bold text-center ${autoCorrect ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                        {autoCorrect ? "Correct!" : `Incorrect — correct: ${options.filter(o => o.isCorrect).map(o => o.text).join(", ")}`}
+                        {autoCorrect ? "Correct!" : `Incorrect — correct: ${options.filter(o => correctIds.has(o.id)).map(o => o.text).join(", ")}`}
                       </div>
                       <div className="flex flex-col gap-2">
                         <label className="text-xs text-gray-500 font-medium text-center">CONFIDENCE LEVEL</label>
@@ -367,12 +465,8 @@ function SessionContent({ courseId }: { courseId: string }) {
                           placeholder={`Answer ${i + 1}…`}
                           className="flex-1 px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-yellow-300"
                           style={{
-                            borderColor: checked
-                              ? blankResults[i] ? "#86efac" : "#fca5a5"
-                              : "#d1d5db",
-                            backgroundColor: checked
-                              ? blankResults[i] ? "#dcfce7" : "#fee2e2"
-                              : "white",
+                            borderColor: checked ? (blankResults[i] ? "#86efac" : "#fca5a5") : "#d1d5db",
+                            backgroundColor: checked ? (blankResults[i] ? "#dcfce7" : "#fee2e2") : "white",
                           }}
                         />
                         {checked && (

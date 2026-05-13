@@ -71,12 +71,13 @@ enum QuestionType {
 }
 
 model Question {
-  id      String       @id @default(cuid())
-  content String
-  answer  String?
-  type    QuestionType @default(WRITTEN)
-  options Json?
-  blanks  Json?
+  id             String       @id @default(cuid())
+  content        String
+  answer         String?
+  type           QuestionType @default(WRITTEN)
+  options        Json?
+  blanks         Json?
+  isAiGenerated  Boolean      @default(false)
 
   courseId String
   course   Course @relation(fields: [courseId], references: [id])
