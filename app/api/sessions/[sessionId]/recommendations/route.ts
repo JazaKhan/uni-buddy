@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
 import { getPrismaUser } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 export async function POST(
   _req: NextRequest,
@@ -15,6 +17,13 @@ export async function POST(
   console.log("RECS 2: user found:", user?.id);
   if (!user) return NextResponse.json({ advice: null });
 
+  const allowed = await checkRateLimit(user.id);
+  if (!allowed) {
+    return NextResponse.json(
+      { error: "Too many requests — please wait a moment before trying again." },
+      { status: 429 }
+    );
+  }
   const session = await prisma.studySession.findFirst({
     where: { id: sessionId, userId: user.id },
     include: {
@@ -66,17 +75,28 @@ export async function POST(
   console.log("RECS 4: masteryScores:", masteryScores.length, "topics:", topics.length, "docs:", docs.length);
 
   // Load PDFs in parallel — skip any that fail or exceed 20MB
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
   const TWENTY_MB = 20 * 1024 * 1024;
   const docContents: { data: string; name: string }[] = (
     await Promise.all(
       docs.map(async (doc) => {
         try {
-          const res = await fetch(doc.fileUrl);
+          const path = doc.fileUrl.split("/course-documents/")[1];
+          const { data, error } = await serviceClient.storage
+            .from("course-documents")
+            .createSignedUrl(path, 60);
+          if (error || !data?.signedUrl) return null;
+          const res = await fetch(data.signedUrl);
           if (!res.ok) return null;
           const buf = await res.arrayBuffer();
           if (buf.byteLength > TWENTY_MB) return null;
           return { data: Buffer.from(buf).toString("base64"), name: doc.name };
-        } catch {
+        } catch (err) {
+          console.log("Failed to load doc:", doc.name, String(err));
           return null;
         }
       })

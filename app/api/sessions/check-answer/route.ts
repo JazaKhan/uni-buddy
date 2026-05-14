@@ -2,13 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getPrismaUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 const anthropic = new Anthropic();
 
 export async function POST(req: NextRequest) {
   const user = await getPrismaUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+  const allowed = await checkRateLimit(user.id);
+  if (!allowed) {
+    return NextResponse.json(
+      { error: "Too many requests — please wait a moment before trying again." },
+      { status: 429 }
+    );
+  }
   let body: { courseId?: string; question?: string; correctAnswer?: string | null; userAnswer?: string; outcomeName?: string };
   try {
     body = await req.json();
@@ -30,16 +38,29 @@ export async function POST(req: NextRequest) {
       take: 2,
     });
 
+    const serviceClient = createServiceClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
     const TWENTY_MB = 20 * 1024 * 1024;
     const loaded = await Promise.all(
       docs.map(async (doc) => {
         try {
-          const res = await fetch(doc.fileUrl);
+          const path = doc.fileUrl.split("/course-documents/")[1];
+          const { data, error } = await serviceClient.storage
+            .from("course-documents")
+            .createSignedUrl(path, 60);
+          if (error || !data?.signedUrl) return null;
+          const res = await fetch(data.signedUrl);
           if (!res.ok) return null;
           const buf = await res.arrayBuffer();
           if (buf.byteLength > TWENTY_MB) return null;
           return { data: Buffer.from(buf).toString("base64") };
-        } catch { return null; }
+        } catch (err) {
+          console.log("Failed to load doc:", doc.name, String(err));
+          return null;
+        }
       })
     );
     docContents.push(...loaded.filter((d): d is { data: string } => d !== null));
