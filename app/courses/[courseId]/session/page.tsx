@@ -43,8 +43,12 @@ function SessionContent({ courseId }: { courseId: string }) {
 
   // Written state
   const [writtenAnswer, setWrittenAnswer] = useState("");
-  const [writtenSubmitted, setWrittenSubmitted] = useState(false);
   const [writtenConfidence, setWrittenConfidence] = useState<Confidence | null>(null);
+  const [aiChecking, setAiChecking] = useState(false);
+  const [aiVerdict, setAiVerdict] = useState<{ result: "correct" | "partial" | "incorrect"; explanation: string; suggestedMark: boolean } | null>(null);
+  const [aiCheckError, setAiCheckError] = useState<string | null>(null);
+  const [userMark, setUserMark] = useState<boolean | null>(null);
+  const [manualMode, setManualMode] = useState(false);
 
   // MC state
   const [selectedOptionIds, setSelectedOptionIds] = useState<Set<string>>(new Set());
@@ -130,8 +134,12 @@ function SessionContent({ courseId }: { courseId: string }) {
   useEffect(() => {
     const q = questions[index];
     setWrittenAnswer("");
-    setWrittenSubmitted(false);
     setWrittenConfidence(null);
+    setAiChecking(false);
+    setAiVerdict(null);
+    setAiCheckError(null);
+    setUserMark(null);
+    setManualMode(false);
     setSelectedOptionIds(new Set());
     setBlankInputs(q?.blanks ? Array(q.blanks.length).fill("") : []);
     setBlankResults([]);
@@ -190,9 +198,27 @@ function SessionContent({ courseId }: { courseId: string }) {
     setIndex(index + 1);
   }
 
-  function handleWrittenSubmit() {
-    if (!writtenConfidence) return;
-    setWrittenSubmitted(true);
+  async function handleAiCheck() {
+    if (!writtenAnswer.trim()) {
+      setAiCheckError("Type your answer first");
+      return;
+    }
+    setAiCheckError(null);
+    setAiChecking(true);
+    const outcomeName = question?.outcomes?.[0]?.name ?? "";
+    const res = await fetch("/api/sessions/check-answer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question: question?.content,
+        correctAnswer: question?.answer ?? null,
+        userAnswer: writtenAnswer,
+        outcomeName,
+      }),
+    });
+    const data = await res.json();
+    setAiVerdict(data);
+    setAiChecking(false);
   }
 
   function handleCheck() {
@@ -301,8 +327,8 @@ function SessionContent({ courseId }: { courseId: string }) {
 
             <p className="text-base font-semibold text-gray-800">{question.content}</p>
 
-            {/* ── WRITTEN ── */}
-            {question.type === "WRITTEN" && !writtenSubmitted && (
+            {/* ── WRITTEN: Phase 0 — answer input ── */}
+            {question.type === "WRITTEN" && !aiChecking && !aiVerdict && !manualMode && userMark === null && (
               <>
                 <div className="flex flex-col gap-1">
                   <label className="text-xs text-gray-500 font-medium">YOUR ANSWER</label>
@@ -314,61 +340,51 @@ function SessionContent({ courseId }: { courseId: string }) {
                     className="px-4 py-3 rounded-2xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300 resize-none"
                   />
                 </div>
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs text-gray-500 font-medium">CONFIDENCE LEVEL</label>
-                  <div className="flex gap-3">
-                    {(["guessed", "unsure", "confident"] as const).map((level) => (
-                      <button
-                        key={level}
-                        onClick={() => setWrittenConfidence(level)}
-                        className="flex-1 py-2 rounded-full text-sm font-bold text-white capitalize transition-all"
-                        style={{
-                          backgroundColor: confidenceColors[level],
-                          opacity: writtenConfidence && writtenConfidence !== level ? 0.45 : 1,
-                          outline: writtenConfidence === level ? "2px solid #374151" : "none",
-                          outlineOffset: "2px",
-                        }}
-                      >
-                        {level.charAt(0).toUpperCase() + level.slice(1)}
-                      </button>
-                    ))}
-                  </div>
+                {aiCheckError && <p className="text-xs text-red-500">{aiCheckError}</p>}
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleAiCheck}
+                    disabled={!writtenAnswer.trim()}
+                    className="flex-1 py-3 rounded-full text-sm font-bold text-gray-800 transition-opacity"
+                    style={{ backgroundColor: "#F5C842", opacity: writtenAnswer.trim() ? 1 : 0.5, cursor: writtenAnswer.trim() ? "pointer" : "not-allowed" }}
+                  >
+                    Check with AI ✨
+                  </button>
+                  <button
+                    onClick={() => setManualMode(true)}
+                    disabled={!writtenAnswer.trim()}
+                    className="flex-1 py-3 rounded-full text-sm font-bold text-gray-600 transition-opacity"
+                    style={{ backgroundColor: "#e5e7eb", opacity: writtenAnswer.trim() ? 1 : 0.5, cursor: writtenAnswer.trim() ? "pointer" : "not-allowed" }}
+                  >
+                    I&apos;ll mark it myself
+                  </button>
                 </div>
-                <button
-                  onClick={handleWrittenSubmit}
-                  disabled={!writtenConfidence}
-                  className="w-full py-3 rounded-full text-sm font-bold text-gray-800 transition-opacity"
-                  style={{ backgroundColor: "#F5C842", opacity: writtenConfidence ? 1 : 0.5, cursor: writtenConfidence ? "pointer" : "not-allowed" }}
-                >
-                  SUBMIT
-                </button>
               </>
             )}
 
-            {question.type === "WRITTEN" && writtenSubmitted && (
+            {/* ── WRITTEN: Manual mode — reveal answer + mark buttons ── */}
+            {question.type === "WRITTEN" && manualMode && userMark === null && (
               <>
                 <div className="p-4 rounded-2xl bg-green-50 border border-green-200">
                   <p className="text-xs font-bold text-green-700 mb-1">CORRECT ANSWER</p>
                   {question.answer ? (
                     <p className="text-sm text-gray-800">{question.answer}</p>
                   ) : (
-                    <p className="text-sm text-gray-500 italic">No answer recorded yet — mark yourself correct or incorrect based on your own judgement.</p>
+                    <p className="text-sm text-gray-500 italic">No answer recorded — mark yourself based on your own judgement.</p>
                   )}
                 </div>
                 <p className="text-xs font-semibold text-gray-600 text-center">How did you do?</p>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => logAttempt(false, writtenConfidence!)}
-                    disabled={logging}
-                    className="flex-1 py-3 rounded-full text-sm font-bold text-white hover:opacity-80 disabled:opacity-50"
+                    onClick={() => setUserMark(false)}
+                    className="flex-1 py-3 rounded-full text-sm font-bold text-white hover:opacity-80"
                     style={{ backgroundColor: "#FF6B6B" }}
                   >
                     Incorrect
                   </button>
                   <button
-                    onClick={() => logAttempt(true, writtenConfidence!)}
-                    disabled={logging}
-                    className="flex-1 py-3 rounded-full text-sm font-bold text-white hover:opacity-80 disabled:opacity-50"
+                    onClick={() => setUserMark(true)}
+                    className="flex-1 py-3 rounded-full text-sm font-bold text-white hover:opacity-80"
                     style={{ backgroundColor: "#5CB85C" }}
                   >
                     Correct
@@ -376,6 +392,85 @@ function SessionContent({ courseId }: { courseId: string }) {
                 </div>
               </>
             )}
+
+            {/* ── WRITTEN: Phase 1 — spinner ── */}
+            {question.type === "WRITTEN" && aiChecking && (
+              <div className="flex flex-col items-center gap-3 py-6">
+                <div className="w-6 h-6 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+                <p className="text-sm text-gray-600 font-medium">✨ Checking your answer…</p>
+              </div>
+            )}
+
+            {/* ── WRITTEN: Phase 2 — AI verdict ── */}
+            {question.type === "WRITTEN" && aiVerdict && userMark === null && (() => {
+              const borderColor = aiVerdict.result === "correct" ? "#86efac" : aiVerdict.result === "partial" ? "#fde047" : "#fca5a5";
+              const bgColor = aiVerdict.result === "correct" ? "#f0fdf4" : aiVerdict.result === "partial" ? "#fefce8" : "#fff1f2";
+              const textColor = aiVerdict.result === "correct" ? "#166534" : aiVerdict.result === "partial" ? "#854d0e" : "#991b1b";
+              const icon = aiVerdict.result === "correct" ? "✅" : aiVerdict.result === "partial" ? "🟡" : "❌";
+              const label = aiVerdict.result === "correct" ? "Looks correct!" : aiVerdict.result === "partial" ? "Partially correct" : "Incorrect";
+              return (
+                <>
+                  <div className="p-4 rounded-2xl border-2" style={{ borderColor, backgroundColor: bgColor }}>
+                    <p className="text-xs font-bold mb-2" style={{ color: textColor }}>{icon} {label}</p>
+                    {!question.answer && (
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">AI Explanation:</p>
+                    )}
+                    <p className="text-sm text-gray-700">{aiVerdict.explanation}</p>
+                    {question.answer && (
+                      <div className="mt-3 pt-3" style={{ borderTop: "1px solid #e5e7eb" }}>
+                        <p className="text-xs font-bold text-gray-500 mb-1">MODEL ANSWER:</p>
+                        <p className="text-sm text-gray-700">{question.answer}</p>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs font-semibold text-gray-600 text-center">Confirm your mark:</p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setUserMark(false)}
+                      className="flex-1 py-3 rounded-full text-sm font-bold text-white hover:opacity-90 transition-all"
+                      style={{ backgroundColor: "#FF6B6B", outline: !aiVerdict.suggestedMark ? "2px solid #374151" : "none", outlineOffset: "2px" }}
+                    >
+                      ✗ Mark Incorrect
+                    </button>
+                    <button
+                      onClick={() => setUserMark(true)}
+                      className="flex-1 py-3 rounded-full text-sm font-bold text-white hover:opacity-90 transition-all"
+                      style={{ backgroundColor: "#5CB85C", outline: aiVerdict.suggestedMark ? "2px solid #374151" : "none", outlineOffset: "2px" }}
+                    >
+                      ✓ Mark Correct
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* ── WRITTEN: Phase 3 — confidence after mark confirmed ── */}
+            {question.type === "WRITTEN" && userMark !== null && (() => {
+              const mark = userMark;
+              return (
+                <>
+                  <div className={`px-4 py-2 rounded-2xl text-sm font-bold text-center ${mark ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                    Marked as {mark ? "Correct ✓" : "Incorrect ✗"}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs text-gray-500 font-medium text-center">CONFIDENCE LEVEL</label>
+                    <div className="flex gap-3">
+                      {(["guessed", "unsure", "confident"] as const).map((level) => (
+                        <button
+                          key={level}
+                          onClick={() => { setWrittenConfidence(level); logAttempt(mark, level); }}
+                          disabled={logging || writtenConfidence !== null}
+                          className="flex-1 py-2 rounded-full text-sm font-bold text-white capitalize transition-all disabled:opacity-50"
+                          style={{ backgroundColor: confidenceColors[level] }}
+                        >
+                          {level.charAt(0).toUpperCase() + level.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
 
             {/* ── MULTIPLE CHOICE ── */}
             {question.type === "MULTIPLE_CHOICE" && (() => {
