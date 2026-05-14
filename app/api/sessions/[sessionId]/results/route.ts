@@ -31,18 +31,31 @@ export async function GET(
 
   if (!session) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Group attempt scores by outcome
-  const outcomeAttempts: Record<string, number[]> = {};
+  // Batch 1: pre-fetch ALL topic→outcome mappings in one query before the loop
+  const allTopicIds = session.questionAttempts.flatMap((a) =>
+    a.question.questionTopics.map((qt) => qt.topicId)
+  );
+  const topicOutcomeMap: Record<string, string[]> = {};
+  if (allTopicIds.length > 0) {
+    const topicOutcomes = await prisma.learningOutcome.findMany({
+      where: { topicId: { in: allTopicIds } },
+      select: { id: true, topicId: true },
+    });
+    for (const o of topicOutcomes) {
+      if (!topicOutcomeMap[o.topicId]) topicOutcomeMap[o.topicId] = [];
+      topicOutcomeMap[o.topicId].push(o.id);
+    }
+  }
 
+  // Group attempt scores by outcome — no DB calls inside this loop
+  const outcomeAttempts: Record<string, number[]> = {};
   for (const attempt of session.questionAttempts) {
     let outcomeIds = attempt.question.questionOutcomes.map((qo) => qo.learningOutcomeId);
 
     if (outcomeIds.length === 0) {
-      const topicOutcomes = await prisma.learningOutcome.findMany({
-        where: { topicId: { in: attempt.question.questionTopics.map((qt) => qt.topicId) } },
-        select: { id: true },
-      });
-      outcomeIds = topicOutcomes.map((o) => o.id);
+      outcomeIds = attempt.question.questionTopics.flatMap((qt) =>
+        topicOutcomeMap[qt.topicId] ?? []
+      );
     }
 
     const score = weightedScore(attempt.isCorrect, attempt.confidence);
@@ -52,17 +65,21 @@ export async function GET(
     }
   }
 
-  // Decaying average: new session counts 60%, history counts 40%
+  // Batch 2: fetch ALL existing mastery scores in one query before updating
+  const touchedOutcomeIds = Object.keys(outcomeAttempts);
+  const existingScores = await prisma.masteryScore.findMany({
+    where: { userId: user.id, learningOutcomeId: { in: touchedOutcomeIds } },
+  });
+  const existingMap = new Map(existingScores.map((s) => [s.learningOutcomeId, s.score]));
+
+  // Decaying average: new session counts 60%, history counts 40% — no findUnique inside the loop
   await Promise.all(
     Object.entries(outcomeAttempts).map(async ([learningOutcomeId, scores]) => {
       const sessionAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const existing = existingMap.get(learningOutcomeId);
 
-      const existing = await prisma.masteryScore.findUnique({
-        where: { userId_learningOutcomeId: { userId: user.id, learningOutcomeId } },
-      });
-
-      const newScore = existing
-        ? Math.round(((existing.score / 100) * 0.4 + sessionAvg * 0.6) * 100)
+      const newScore = existing !== undefined
+        ? Math.round(((existing / 100) * 0.4 + sessionAvg * 0.6) * 100)
         : Math.round(sessionAvg * 100);
 
       await prisma.masteryScore.upsert({
