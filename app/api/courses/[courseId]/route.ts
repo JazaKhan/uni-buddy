@@ -67,9 +67,10 @@ export async function GET(
   const allOutcomes = topics.flatMap((t) => t.outcomes);
   const allOutcomeIds = allOutcomes.map((o) => o.id);
 
+  const practicedOutcomes = allOutcomes.filter((o) => o.hasMastery);
   const courseMastery =
-    allOutcomes.length > 0
-      ? Math.round(allOutcomes.reduce((sum, o) => sum + o.mastery, 0) / allOutcomes.length)
+    practicedOutcomes.length > 0
+      ? Math.round(practicedOutcomes.reduce((sum, o) => sum + o.mastery, 0) / practicedOutcomes.length)
       : 0;
 
   // --- Mastery history: one data point per session ---
