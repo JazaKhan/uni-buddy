@@ -210,6 +210,7 @@ function SessionContent({ courseId }: { courseId: string }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        courseId,
         question: question?.content,
         correctAnswer: question?.answer ?? null,
         userAnswer: writtenAnswer,
