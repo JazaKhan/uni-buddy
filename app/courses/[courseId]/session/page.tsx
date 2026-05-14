@@ -270,7 +270,7 @@ function SessionContent({ courseId }: { courseId: string }) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-6" style={{ backgroundColor: "#8FAF76" }}>
         <p className="text-white font-bold text-center">
-          {loadError ?? "No questions available for the selected topics."}
+          {loadError ?? "No questions found for the selected topics — add some questions first or try AI Generated mode."}
         </p>
         <button
           onClick={() => router.back()}

@@ -20,13 +20,23 @@ function ResultsContent({ courseId }: { courseId: string }) {
 
   const [results, setResults] = useState<ResultsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recommendations, setRecommendations] = useState<{ advice: string; nextTopic: string; nextTopicId: string } | null>(null);
+  const [loadingRecs, setLoadingRecs] = useState(true);
 
   useEffect(() => {
     if (!sessionId) { router.push(`/courses/${courseId}`); return; }
+
     fetch(`/api/sessions/${sessionId}/results`)
       .then((r) => r.json())
       .then((data) => { setResults(data); setLoading(false); })
       .catch(() => router.push(`/courses/${courseId}`));
+
+    console.log("RESULTS: fetching recommendations for session", sessionId);
+    fetch(`/api/sessions/${sessionId}/recommendations`, { method: "POST" })
+      .then((r) => { if (!r.ok) throw new Error(`http ${r.status}`); return r.json(); })
+      .then((d) => { console.log("RESULTS: recommendations response", d); if (d.advice) setRecommendations(d); })
+      .catch((e) => console.error("RESULTS: recommendations fetch failed", e))
+      .finally(() => setLoadingRecs(false));
   }, [sessionId, courseId, router]);
 
   if (loading || !results) {
@@ -119,6 +129,48 @@ function ResultsContent({ courseId }: { courseId: string }) {
             </div>
           )}
         </div>
+
+        {(loadingRecs || recommendations) && (
+          <div
+            className="p-6 rounded-3xl shadow-lg flex flex-col gap-4"
+            style={{ backgroundColor: "#FEFEE8", borderLeft: "4px solid #F5C842" }}
+          >
+            <div>
+              <h2 className="text-sm font-bold text-gray-800">✨ AI Study Recommendations</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Based on your session performance</p>
+            </div>
+            {loadingRecs ? (
+              <div className="flex items-center gap-3">
+                <div className="w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                <p className="text-sm text-gray-400 animate-pulse">Generating recommendations…</p>
+              </div>
+            ) : recommendations ? (
+              <>
+                <div
+                  className="px-4 py-3 rounded-2xl text-sm text-gray-700 leading-relaxed"
+                  style={{ backgroundColor: "#f5f3e0", borderLeft: "3px solid #e0ddb8" }}
+                >
+                  {recommendations.advice}
+                </div>
+                {recommendations.nextTopic && (
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Suggested next session:</p>
+                      <p className="text-sm font-bold text-gray-800 mt-0.5">{recommendations.nextTopic}</p>
+                    </div>
+                    <button
+                      onClick={() => router.push(`/courses/${courseId}/session/setup?preselect=${recommendations.nextTopicId}`)}
+                      className="px-5 py-2 rounded-full text-xs font-bold text-gray-800 shadow hover:opacity-80 transition-opacity shrink-0"
+                      style={{ backgroundColor: "#F5C842" }}
+                    >
+                      Start Session →
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : null}
+          </div>
+        )}
 
         <div className="flex gap-4 justify-center">
           <button

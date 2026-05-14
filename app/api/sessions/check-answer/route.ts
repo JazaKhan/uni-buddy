@@ -17,23 +17,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ result: "incorrect", explanation: "Missing question or answer.", suggestedMark: false });
   }
 
-  const prompt = `You are grading a university student's answer to an exam question.
+  const prompt = `You are a fair and encouraging university study coach grading a student's answer.
 
 Question: ${question}
-Learning outcome being tested: ${outcomeName || "Not specified"}
-${correctAnswer ? `Model answer: ${correctAnswer}` : "No model answer provided — use your knowledge to assess correctness."}
+Learning outcome: ${outcomeName || "Not specified"}
+${correctAnswer ? `Model answer: ${correctAnswer}` : "No model answer — use your knowledge."}
 Student's answer: ${userAnswer}
 
-Assess the student's answer. Be fair but rigorous — partial credit for answers that show understanding but miss key details.
+Grading rules:
+- If the student's answer conveys the same meaning as the model answer, even in different words → "correct"
+- If the student closely paraphrased or captured the core idea → "correct"
+- Only mark "partial" if they got the core idea but are clearly missing a significant concept
+- Only mark "incorrect" if they fundamentally misunderstood or gave a wrong answer
+- Do NOT penalize for missing extra detail unless the question specifically asks for it
+- Do NOT mark down for informal phrasing or incomplete sentences
 
 Return ONLY valid JSON:
 {
   "result": "correct" | "partial" | "incorrect",
-  "explanation": "2-3 sentence explanation of what was right/wrong and what the key concept is",
-  "suggestedMark": true or false
+  "explanation": "1-2 sentences. If correct, affirm what they got right. If partial/incorrect, explain the gap concisely.",
+  "suggestedMark": true | false
 }
 
-suggestedMark should be true for "correct" and "partial", false for "incorrect".`;
+suggestedMark: true for correct or partial, false for incorrect only.`;
 
   try {
     const message = await anthropic.messages.create({

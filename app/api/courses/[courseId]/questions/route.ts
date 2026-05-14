@@ -30,27 +30,15 @@ export async function GET(
   const selectedTopicIds = topicIdsParam ? topicIdsParam.split(",").filter(Boolean) : [];
   const selectedOutcomeIds = outcomeIdsParam ? outcomeIdsParam.split(",").filter(Boolean) : [];
 
-  // Build filter: when IDs are provided, include questions tagged to them OR questions
-  // with no tags at all (untagged questions are "general" and appear in every session).
-  // When no IDs provided, return everything.
-  const topicFilter = selectedTopicIds.length > 0
-    ? { OR: [
-        { questionTopics: { none: {} } },
-        { questionTopics: { some: { topicId: { in: selectedTopicIds } } } },
-      ] }
-    : {};
-
-  const outcomeFilter = selectedOutcomeIds.length > 0
-    ? { OR: [
-        { questionOutcomes: { none: {} } },
-        { questionOutcomes: { some: { learningOutcomeId: { in: selectedOutcomeIds } } } },
-      ] }
-    : {};
-
   const questions = await prisma.question.findMany({
     where: {
       courseId,
-      ...(selectedOutcomeIds.length > 0 ? outcomeFilter : topicFilter),
+      ...(selectedOutcomeIds.length > 0 && {
+        questionOutcomes: { some: { learningOutcomeId: { in: selectedOutcomeIds } } },
+      }),
+      ...(selectedOutcomeIds.length === 0 && selectedTopicIds.length > 0 && {
+        questionTopics: { some: { topicId: { in: selectedTopicIds } } },
+      }),
     },
     include: {
       questionTopics: { include: { topic: true } },
