@@ -1,17 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
-
-async function getPrismaUser() {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser?.email) return null;
-  return prisma.user.upsert({
-    where: { email: authUser.email },
-    update: {},
-    create: { email: authUser.email },
-  });
-}
+import { getPrismaUser } from "@/lib/auth";
 
 export async function POST(
   req: NextRequest,

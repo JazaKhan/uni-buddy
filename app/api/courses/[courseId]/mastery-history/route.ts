@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
+import { getPrismaUser } from "@/lib/auth";
 
 function weightedScore(isCorrect: boolean, confidence: string): number {
   if (isCorrect) {
@@ -19,17 +19,9 @@ export async function GET(
   { params }: { params: Promise<{ courseId: string }> }
 ) {
   const { courseId } = await params;
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const user = await getPrismaUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const user = await prisma.user.upsert({
-    where: { email: authUser.email },
-    update: {},
-    create: { email: authUser.email },
-  });
-
-  // Verify course belongs to user
   const course = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
   if (!course) return NextResponse.json({ error: "Not found" }, { status: 404 });
 

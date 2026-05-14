@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { getPrismaUser } from "@/lib/auth";
 
 const anthropic = new Anthropic();
 
 export async function POST(req: NextRequest) {
+  const user = await getPrismaUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   let body: { question?: string; correctAnswer?: string | null; userAnswer?: string; outcomeName?: string };
   try {
     body = await req.json();

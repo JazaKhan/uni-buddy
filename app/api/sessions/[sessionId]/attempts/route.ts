@@ -1,17 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
-
-async function getPrismaUser() {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser?.email) return null;
-  return prisma.user.upsert({
-    where: { email: authUser.email },
-    update: {},
-    create: { email: authUser.email },
-  });
-}
+import { getPrismaUser } from "@/lib/auth";
 
 function weightedScore(isCorrect: boolean, confidence: string): number {
   if (isCorrect) {
@@ -73,39 +62,18 @@ export async function POST(
     }
   }
 
-  // Recalculate and upsert MasteryScore for each outcome
+  // Incremental mastery: rolling weighted average using this attempt only
+  const newAttemptScore = weightedScore(isCorrect, confidenceEnum);
   for (const learningOutcomeId of outcomeIds) {
-    const allAttempts = await prisma.questionAttempt.findMany({
-      where: {
-        session: { userId: user.id },
-        question: {
-          OR: [
-            { questionOutcomes: { some: { learningOutcomeId } } },
-            {
-              questionOutcomes: { none: {} },
-              questionTopics: {
-                some: {
-                  topic: { learningOutcomes: { some: { id: learningOutcomeId } } },
-                },
-              },
-            },
-          ],
-        },
-      },
+    const existing = await prisma.masteryScore.findUnique({
+      where: { userId_learningOutcomeId: { userId: user.id, learningOutcomeId } },
     });
-
-    const score =
-      allAttempts.length === 0
-        ? 0
-        : Math.round(
-            (allAttempts.reduce((sum, a) => sum + weightedScore(a.isCorrect, a.confidence), 0) /
-              allAttempts.length) * 100
-          );
-
+    const currentScore = existing ? existing.score / 100 : 0;
+    const newScore = Math.round((currentScore * 0.7 + newAttemptScore * 0.3) * 100);
     await prisma.masteryScore.upsert({
       where: { userId_learningOutcomeId: { userId: user.id, learningOutcomeId } },
-      update: { score },
-      create: { userId: user.id, learningOutcomeId, score },
+      update: { score: newScore },
+      create: { userId: user.id, learningOutcomeId, score: newScore },
     });
   }
 

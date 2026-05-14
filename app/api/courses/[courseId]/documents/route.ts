@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
-
-async function getPrismaUser() {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser?.email) return null;
-  return prisma.user.upsert({
-    where: { email: authUser.email },
-    update: {},
-    create: { email: authUser.email },
-  });
-}
+import { getPrismaUser } from "@/lib/auth";
 
 export async function GET(
   _req: NextRequest,
