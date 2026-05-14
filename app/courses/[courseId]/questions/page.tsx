@@ -15,11 +15,13 @@ type Question = {
   id: string;
   content: string;
   answer: string | null;
-  type: QuestionType;
-  mastery: number;
+  type: "WRITTEN" | "MULTIPLE_CHOICE" | "FILL_IN_BLANK";
+  options: MCOption[] | null;
+  blanks: string[] | null;
   isAiGenerated: boolean;
-  topics: Topic[];
-  outcomes: Outcome[];
+  topics: { id: string; name: string }[];
+  outcomes: { id: string; name: string }[];
+  mastery: number;
 };
 
 function genId() {
