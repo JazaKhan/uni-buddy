@@ -89,6 +89,8 @@ export async function POST(
 
       const prompt = `You are analyzing a university course document. Extract the learning outcomes and topics from this document.
 
+Extract ONLY what is explicitly stated in this document — do not infer, add context, or use outside knowledge.
+
 Return ONLY a valid JSON object in this exact format, no other text:
 {
   "topics": [
@@ -104,7 +106,7 @@ Return ONLY a valid JSON object in this exact format, no other text:
 
 Rules:
 - Group outcomes under their relevant topic
-- Each outcome should be a clear, concise statement of what a student should know or be able to do
+- Each outcome should be a clear, concise statement of what a student should know or be able to do — copied or closely paraphrased from the document
 - If no clear topics exist, use a single topic named after the document subject
 - Maximum 10 topics, maximum 8 outcomes per topic`;
 
@@ -155,6 +157,8 @@ Rules:
         : null;
 
       const prompt = `You are analyzing a university exam or quiz document. Extract every practice question from this document.
+
+Extract ONLY what is explicitly stated in this document — do not infer, add context, or use outside knowledge.
 ${outcomeList
   ? `\nThe course has these learning outcomes:\n${outcomeList}\n\nFor each question, map it to the most relevant outcome IDs from the list above. Only use IDs from the list.`
   : "\nThe course has no learning outcomes yet — set outcomeIds to [] for all questions."}

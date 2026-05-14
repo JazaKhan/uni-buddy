@@ -58,29 +58,31 @@ export async function POST(
 
   console.log("3. Documents fetched:", documents.length);
 
-  // Build document content blocks for Claude
+  // Build document content blocks for Claude — fetch all in parallel, skip >20MB
   type ContentBlock =
     | { type: "text"; text: string }
     | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } };
 
-  const docBlocks: ContentBlock[] = [];
-  for (const doc of documents) {
-    try {
-      const res = await fetch(doc.fileUrl);
-      if (!res.ok) {
-        console.log("3a. Failed to fetch doc:", doc.name, res.status);
-        continue;
-      }
-      const buf = await res.arrayBuffer();
-      const base64 = Buffer.from(buf).toString("base64");
-      docBlocks.push({
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: base64 },
-      });
-    } catch (err) {
-      console.log("3b. Error fetching doc:", doc.name, String(err));
-    }
-  }
+  const TWENTY_MB = 20 * 1024 * 1024;
+  const docBlocks: ContentBlock[] = (
+    await Promise.all(
+      documents.map(async (doc) => {
+        try {
+          const res = await fetch(doc.fileUrl);
+          if (!res.ok) { console.log("3a. Failed to fetch doc:", doc.name, res.status); return null; }
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength > TWENTY_MB) { console.log("3a. Skipping doc >20MB:", doc.name); return null; }
+          return {
+            type: "document" as const,
+            source: { type: "base64" as const, media_type: "application/pdf" as const, data: Buffer.from(buf).toString("base64") },
+          };
+        } catch (err) {
+          console.log("3b. Error fetching doc:", doc.name, String(err));
+          return null;
+        }
+      })
+    )
+  ).filter((b): b is ContentBlock & { type: "document" } => b !== null);
 
   // Build outcome list with real DB ids explicitly injected into the prompt
   const outcomeList = outcomes
@@ -89,7 +91,7 @@ export async function POST(
 
   const prompt = `You are generating practice questions for a university course.
 
-${docBlocks.length > 0 ? "Course documents are attached above. Use them as context for generating accurate, course-specific questions." : "No course documents are available — generate questions based solely on the outcomes listed below."}
+${docBlocks.length > 0 ? "Course documents are attached above. Generate questions ONLY from content explicitly present in these documents — do not invent questions from general knowledge. If a topic from the outcomes list is not covered in the documents, skip it." : "No course documents are available — generate questions based solely on the outcomes listed below."}
 
 Generate exactly ${count} questions total, distributed evenly across the provided outcomes. Mix question types naturally:
 - WRITTEN for conceptual/explain/discuss questions

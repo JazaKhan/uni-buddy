@@ -21,21 +21,23 @@ export async function POST(req: NextRequest) {
 
 Question: ${question}
 Learning outcome: ${outcomeName || "Not specified"}
-${correctAnswer ? `Model answer: ${correctAnswer}` : "No model answer — use your knowledge."}
+${correctAnswer ? `Model answer: ${correctAnswer}` : "No model answer provided — grade solely on whether the answer is reasonable for the question."}
 Student's answer: ${userAnswer}
 
 Grading rules:
+- Grade based STRICTLY on the student's answer versus the model answer provided — do not introduce external knowledge
+- Do not correct the student using information not present in the model answer
 - If the student's answer conveys the same meaning as the model answer, even in different words → "correct"
 - If the student closely paraphrased or captured the core idea → "correct"
-- Only mark "partial" if they got the core idea but are clearly missing a significant concept
-- Only mark "incorrect" if they fundamentally misunderstood or gave a wrong answer
+- Only mark "partial" if they got the core idea but are clearly missing a significant concept from the model answer
+- Only mark "incorrect" if they fundamentally misunderstood or contradicted the model answer
 - Do NOT penalize for missing extra detail unless the question specifically asks for it
 - Do NOT mark down for informal phrasing or incomplete sentences
 
 Return ONLY valid JSON:
 {
   "result": "correct" | "partial" | "incorrect",
-  "explanation": "1-2 sentences. If correct, affirm what they got right. If partial/incorrect, explain the gap concisely.",
+  "explanation": "1-2 sentences. If correct, affirm what they got right. If partial/incorrect, explain the gap using only what the model answer says — no outside information.",
   "suggestedMark": true | false
 }
 

@@ -58,7 +58,7 @@ export async function POST(
     }
   }
 
-  const [masteryScores, topics, documents] = await Promise.all([
+  const [masteryScores, topics, docs] = await Promise.all([
     prisma.masteryScore.findMany({
       where: { learningOutcomeId: { in: [...touchedOutcomeIds] }, userId: user.id },
       include: { learningOutcome: { include: { topic: true } } },
@@ -70,74 +70,103 @@ export async function POST(
     }),
     prisma.document.findMany({
       where: { courseId, purpose: { in: ["lecture", "outcomes"] } },
-      take: 2,
+      take: 3,
       orderBy: { createdAt: "desc" },
     }),
   ]);
 
-  console.log("RECS 4: masteryScores:", masteryScores.length, "topics:", topics.length, "docs:", documents.length);
+  console.log("RECS 4: masteryScores:", masteryScores.length, "topics:", topics.length, "docs:", docs.length);
 
-  type ContentBlock =
-    | { type: "text"; text: string }
-    | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } };
+  // Load PDFs in parallel — skip any that fail or exceed 20MB
+  const TWENTY_MB = 20 * 1024 * 1024;
+  const docContents: { data: string; name: string }[] = (
+    await Promise.all(
+      docs.map(async (doc) => {
+        try {
+          const res = await fetch(doc.fileUrl);
+          if (!res.ok) return null;
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength > TWENTY_MB) return null;
+          return { data: Buffer.from(buf).toString("base64"), name: doc.name };
+        } catch {
+          return null;
+        }
+      })
+    )
+  ).filter((d): d is { data: string; name: string } => d !== null);
 
-  const docBlocks: ContentBlock[] = [];
-  for (const doc of documents) {
-    try {
-      const res = await fetch(doc.fileUrl);
-      if (!res.ok) continue;
-      const buf = await res.arrayBuffer();
-      docBlocks.push({
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: Buffer.from(buf).toString("base64") },
-      });
-    } catch {
-      // skip failed docs
-    }
-  }
+  const total = session.questionAttempts.length;
+  const correct = session.questionAttempts.filter((a) => a.isCorrect).length;
 
   const attemptLines = session.questionAttempts
-    .map((a) => `- "${a.question.content.slice(0, 80)}..." → ${a.isCorrect ? "Correct" : "Incorrect"} (${a.confidence.toLowerCase()})`)
+    .map((a) => {
+      const outcomeNames = a.question.questionOutcomes
+        .map((qo) => qo.learningOutcome.name)
+        .join(", ");
+      return `- "${a.question.content.slice(0, 100)}..." → ${a.isCorrect ? "✓ Correct" : "✗ Incorrect"} | Confidence: ${a.confidence}${outcomeNames ? ` | Tests: ${outcomeNames}` : ""}`;
+    })
     .join("\n");
 
-  const outcomeLines = masteryScores.length > 0
-    ? masteryScores
-        .map((ms) => `- ${ms.learningOutcome.name} (${ms.learningOutcome.topic?.name ?? "Unknown"}): ${Math.round(ms.score * 100)}%`)
-        .join("\n")
+  const outcomeStats = masteryScores.map((ms) => ({
+    name: ms.learningOutcome.name,
+    topic: ms.learningOutcome.topic?.name ?? "Unknown",
+    score: Math.min(ms.score, 1),
+  }));
+
+  const outcomeLines = outcomeStats.length > 0
+    ? outcomeStats.map((o) => `- ${o.name} (${o.topic}): ${Math.round(o.score * 100)}%`).join("\n")
     : "No outcome mastery data available yet.";
 
-  const topicsStr = topics.map((t) => `{ id: "${t.id}", name: "${t.name}" }`).join(", ");
+  const topicsStr = topics.map((t) => `{ "id": "${t.id}", "name": "${t.name}" }`).join(", ");
 
-  const prompt = `You are a university study coach reviewing a student's practice session results.
+  const promptText = `You are a university study coach reviewing a student's practice session.
+${docContents.length > 0
+    ? "The student's course notes are provided above. Base your advice ONLY on content explicitly present in these documents — do not draw on general university or textbook knowledge not present in the files. Reference specific concepts, examples, and terminology from the notes."
+    : "No course notes are uploaded for this course. Base advice only on the session performance data and outcome names provided below — do not introduce outside knowledge."}
 
-${docBlocks.length > 0 ? "Course materials are provided above — reference specific content where relevant." : ""}
-
-Session performance:
+Session performance (${correct}/${total} correct):
 ${attemptLines || "No attempts recorded."}
 
 Outcome mastery after this session:
 ${outcomeLines}
 
-Give the student 3-4 sentences of specific, actionable study advice. Be direct — tell them exactly what to focus on, what to skip, and how to study the weak areas. Reference specific outcomes by name. Do not be generic.
+Give 3-4 sentences of specific, actionable advice:
+- Reference specific concepts from the course notes where possible
+- Call out patterns in what the student got wrong (not just "study more")
+- Tell them exactly HOW to study the weak areas
+- Skip anything they clearly already know
+- Keep mastery scores as 0-100%, never higher
 
-Then suggest the single best next session focus (one topic name only).
+Then name the single best topic to focus on next.
 
-Return ONLY valid JSON:
+Return ONLY valid JSON, no other text:
 {
-  "advice": "3-4 sentence paragraph of specific advice",
-  "nextTopic": "Topic name to focus on next",
-  "nextTopicId": "the topic id from the list below"
+  "advice": "3-4 sentence paragraph of specific, grounded advice",
+  "nextTopic": "Topic name",
+  "nextTopicId": "exact topic id from the list below"
 }
 
 Available topics: ${topicsStr}`;
 
   console.log("RECS 5: calling Claude...");
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-  const contentBlocks: ContentBlock[] = [...docBlocks, { type: "text", text: prompt }];
+
+  const contentBlocks: Anthropic.MessageParam["content"] = [
+    ...docContents.map((d) => ({
+      type: "document" as const,
+      source: {
+        type: "base64" as const,
+        media_type: "application/pdf" as const,
+        data: d.data,
+      },
+      title: d.name,
+    })),
+    { type: "text" as const, text: promptText },
+  ];
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 1024,
+    max_tokens: 1000,
     messages: [{ role: "user", content: contentBlocks }],
   });
 
