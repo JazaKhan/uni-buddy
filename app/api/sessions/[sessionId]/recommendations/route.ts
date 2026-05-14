@@ -98,7 +98,7 @@ export async function POST(
   const outcomeStats = masteryScores.map((ms) => ({
     name: ms.learningOutcome.name,
     topic: ms.learningOutcome.topic?.name ?? "Unknown",
-    score: Math.min(ms.score, 1),
+    score: Math.min(ms.score / 100, 1),
   }));
 
   const outcomeLines = outcomeStats.length > 0
