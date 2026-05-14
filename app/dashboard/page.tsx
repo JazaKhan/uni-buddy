@@ -29,13 +29,23 @@ function CourseCard({ course }: { course: Course }) {
       className="flex flex-col gap-3 p-6 rounded-3xl shadow-lg"
       style={{ backgroundColor: "#FEFEE8" }}
     >
-      {course.code && (
-        <span
-          className="self-start px-3 py-1 rounded-full text-xs font-bold text-gray-700"
-          style={{ backgroundColor: "#D6EEF8" }}
-        >
-          {course.code}
-        </span>
+      {(course.code || course.credits) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {course.code && (
+            <span
+              className="px-3 py-1 rounded-full text-xs font-bold text-gray-700"
+              style={{ backgroundColor: "#D6EEF8" }}
+            >
+              {course.code}
+            </span>
+          )}
+          <span
+            className="px-3 py-1 rounded-full text-xs font-bold text-gray-700"
+            style={{ backgroundColor: "#D6F8E8" }}
+          >
+            {course.credits} cr
+          </span>
+        </div>
       )}
       <p className="text-sm font-semibold text-gray-800">{course.name}</p>
       <p className="text-xs text-gray-500">
