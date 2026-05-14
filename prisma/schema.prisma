@@ -157,6 +157,7 @@ model Document {
   fileUrl   String
   fileType  String
   purpose   String
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
   courseId String

@@ -50,8 +50,7 @@ export async function POST(
 
   // Fetch up to 3 lecture/outcomes documents for context
   const documents = await prisma.document.findMany({
-    where: { courseId, purpose: { in: ["lecture", "outcomes"] } },
-    take: 3,
+    where: { courseId, purpose: { in: ["lecture", "outcomes"] }, isActive: true },
     orderBy: { createdAt: "desc" },
   });
   const hasNotesDocs = documents.length > 0;

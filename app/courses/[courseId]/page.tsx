@@ -324,7 +324,7 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const topicInputRef = useRef<HTMLInputElement>(null);
   const [masteryHistory, setMasteryHistory] = useState<MasteryPoint[]>([]);
-  const [documents, setDocuments] = useState<Array<{ id: string; name: string; purpose: string; createdAt: string }>>([]);
+  const [documents, setDocuments] = useState<Array<{ id: string; name: string; fileUrl: string; purpose: string; isActive: boolean; createdAt: string }>>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadPurpose, setUploadPurpose] = useState("");
   const [previewData, setPreviewData] = useState<null | { topics: Array<{ name: string; selected: boolean; outcomes: Array<{ name: string; selected: boolean }> }> }>(null);
@@ -453,6 +453,15 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
       body: JSON.stringify({ documentId }),
     });
     setDocuments((prev) => prev.filter((d) => d.id !== documentId));
+  }
+
+  async function handleToggleActive(documentId: string, isActive: boolean) {
+    setDocuments((prev) => prev.map((d) => d.id === documentId ? { ...d, isActive } : d));
+    await fetch(`/api/courses/${courseId}/documents`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ documentId, isActive }),
+    });
   }
 
   async function handleConfirmExtraction() {
@@ -638,6 +647,17 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleToggleActive(doc.id, !doc.isActive)}
+                        title={doc.isActive ? "Used by AI — click to disable" : "Disabled — click to enable"}
+                        className="relative w-8 h-4 rounded-full transition-colors shrink-0 focus:outline-none"
+                        style={{ backgroundColor: doc.isActive ? "#5CB85C" : "#d1d5db" }}
+                      >
+                        <span
+                          className="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                          style={{ left: doc.isActive ? "17px" : "2px" }}
+                        />
+                      </button>
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "#D6EEF8", color: "#374151" }}>
                         {doc.purpose}
                       </span>

@@ -69,8 +69,7 @@ export async function POST(
       select: { id: true, name: true },
     }),
     prisma.document.findMany({
-      where: { courseId, purpose: { in: ["lecture", "outcomes"] } },
-      take: 3,
+      where: { courseId, purpose: { in: ["lecture", "outcomes"] }, isActive: true },
       orderBy: { createdAt: "desc" },
     }),
   ]);

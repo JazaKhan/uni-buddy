@@ -213,6 +213,32 @@ Rules:
   return NextResponse.json({ document, shouldPreview: false });
 }
 
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ courseId: string }> }
+) {
+  const { courseId } = await params;
+  const user = await getPrismaUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { documentId, isActive } = await req.json();
+  if (!documentId || typeof isActive !== "boolean") {
+    return NextResponse.json({ error: "documentId and isActive required" }, { status: 400 });
+  }
+
+  const doc = await prisma.document.findFirst({
+    where: { id: documentId, courseId, course: { userId: user.id } },
+  });
+  if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const updated = await prisma.document.update({
+    where: { id: documentId },
+    data: { isActive },
+  });
+
+  return NextResponse.json(updated);
+}
+
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ courseId: string }> }
