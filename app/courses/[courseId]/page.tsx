@@ -14,6 +14,7 @@ type CourseData = {
   id: string;
   name: string;
   code: string | null;
+  credits: number;
   isArchived: boolean;
   courseMastery: number;
   topics: TopicWithOutcomes[];
@@ -91,12 +92,15 @@ export default function CoursePage({ params }: { params: Promise<{ courseId: str
       <NavBar
         centerContent={
           course.code ? (
-            <span
-              className="px-4 py-1 rounded-full text-xs font-bold text-gray-700"
-              style={{ backgroundColor: "#D6EEF8" }}
-            >
-              {course.code}
-            </span>
+            <div className="flex items-center gap-2">
+              <span
+                className="px-4 py-1 rounded-full text-xs font-bold text-gray-700"
+                style={{ backgroundColor: "#D6EEF8" }}
+              >
+                {course.code}
+              </span>
+              <span className="text-xs text-gray-200">{course.credits} cr</span>
+            </div>
           ) : undefined
         }
       />

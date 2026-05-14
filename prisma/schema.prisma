@@ -23,11 +23,12 @@ model User {
 }
 
 model Course {
-  id        String   @id @default(cuid())
-  name      String
-  code      String?
+  id         String   @id @default(cuid())
+  name       String
+  code       String?
+  credits    Int      @default(3)
   isArchived Boolean  @default(false)
-  createdAt DateTime @default(now())
+  createdAt  DateTime @default(now())
 
   userId String
   user   User   @relation(fields: [userId], references: [id])

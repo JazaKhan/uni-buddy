@@ -52,6 +52,7 @@ export async function GET(
     id: course.id,
     name: course.name,
     code: course.code,
+    credits: course.credits,
     isArchived: course.isArchived,
     courseMastery,
     topics,

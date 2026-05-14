@@ -32,6 +32,7 @@ export async function GET(request: Request) {
       id: course.id,
       name: course.name,
       code: course.code,
+      credits: course.credits,
       isArchived: course.isArchived,
       createdAt: course.createdAt,
       courseMastery,
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
   const body = await request.json()
   const name: string = (body.name ?? '').trim()
   const code: string = (body.code ?? '').trim()
+  const credits: number = typeof body.credits === 'number' && body.credits >= 1 ? body.credits : 3
 
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
 
@@ -55,6 +57,7 @@ export async function POST(request: Request) {
     data: {
       name,
       code: code || null,
+      credits,
       userId: user.id,
     },
   })
