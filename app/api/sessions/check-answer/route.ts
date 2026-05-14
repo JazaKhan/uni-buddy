@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { getPrismaUser } from "@/lib/auth";
 
 const anthropic = new Anthropic();
 
 export async function POST(req: NextRequest) {
+  const user = await getPrismaUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   let body: { question?: string; correctAnswer?: string | null; userAnswer?: string; outcomeName?: string };
   try {
     body = await req.json();
@@ -17,23 +21,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ result: "incorrect", explanation: "Missing question or answer.", suggestedMark: false });
   }
 
-  const prompt = `You are grading a university student's answer to an exam question.
+  const prompt = `You are a fair and encouraging university study coach grading a student's answer.
 
 Question: ${question}
-Learning outcome being tested: ${outcomeName || "Not specified"}
-${correctAnswer ? `Model answer: ${correctAnswer}` : "No model answer provided — use your knowledge to assess correctness."}
+Learning outcome: ${outcomeName || "Not specified"}
+${correctAnswer ? `Model answer: ${correctAnswer}` : "No model answer provided — grade solely on whether the answer is reasonable for the question."}
 Student's answer: ${userAnswer}
 
-Assess the student's answer. Be fair but rigorous — partial credit for answers that show understanding but miss key details.
+Grading rules:
+- Grade based STRICTLY on the student's answer versus the model answer provided — do not introduce external knowledge
+- Do not correct the student using information not present in the model answer
+- If the student's answer conveys the same meaning as the model answer, even in different words → "correct"
+- If the student closely paraphrased or captured the core idea → "correct"
+- Only mark "partial" if they got the core idea but are clearly missing a significant concept from the model answer
+- Only mark "incorrect" if they fundamentally misunderstood or contradicted the model answer
+- Do NOT penalize for missing extra detail unless the question specifically asks for it
+- Do NOT mark down for informal phrasing or incomplete sentences
 
 Return ONLY valid JSON:
 {
   "result": "correct" | "partial" | "incorrect",
-  "explanation": "2-3 sentence explanation of what was right/wrong and what the key concept is",
-  "suggestedMark": true or false
+  "explanation": "1-2 sentences. If correct, affirm what they got right. If partial/incorrect, explain the gap using only what the model answer says — no outside information.",
+  "suggestedMark": true | false
 }
 
-suggestedMark should be true for "correct" and "partial", false for "incorrect".`;
+suggestedMark: true for correct or partial, false for incorrect only.`;
 
   try {
     const message = await anthropic.messages.create({

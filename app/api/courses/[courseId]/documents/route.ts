@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
-
-async function getPrismaUser() {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser?.email) return null;
-  return prisma.user.upsert({
-    where: { email: authUser.email },
-    update: {},
-    create: { email: authUser.email },
-  });
-}
+import { getPrismaUser } from "@/lib/auth";
 
 export async function GET(
   _req: NextRequest,
@@ -89,6 +78,8 @@ export async function POST(
 
       const prompt = `You are analyzing a university course document. Extract the learning outcomes and topics from this document.
 
+Extract ONLY what is explicitly stated in this document — do not infer, add context, or use outside knowledge.
+
 Return ONLY a valid JSON object in this exact format, no other text:
 {
   "topics": [
@@ -104,7 +95,7 @@ Return ONLY a valid JSON object in this exact format, no other text:
 
 Rules:
 - Group outcomes under their relevant topic
-- Each outcome should be a clear, concise statement of what a student should know or be able to do
+- Each outcome should be a clear, concise statement of what a student should know or be able to do — copied or closely paraphrased from the document
 - If no clear topics exist, use a single topic named after the document subject
 - Maximum 10 topics, maximum 8 outcomes per topic`;
 
@@ -155,6 +146,8 @@ Rules:
         : null;
 
       const prompt = `You are analyzing a university exam or quiz document. Extract every practice question from this document.
+
+Extract ONLY what is explicitly stated in this document — do not infer, add context, or use outside knowledge.
 ${outcomeList
   ? `\nThe course has these learning outcomes:\n${outcomeList}\n\nFor each question, map it to the most relevant outcome IDs from the list above. Only use IDs from the list.`
   : "\nThe course has no learning outcomes yet — set outcomeIds to [] for all questions."}
@@ -207,6 +200,32 @@ Rules:
   }
 
   return NextResponse.json({ document, shouldPreview: false });
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ courseId: string }> }
+) {
+  const { courseId } = await params;
+  const user = await getPrismaUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { documentId, isActive } = await req.json();
+  if (!documentId || typeof isActive !== "boolean") {
+    return NextResponse.json({ error: "documentId and isActive required" }, { status: 400 });
+  }
+
+  const doc = await prisma.document.findFirst({
+    where: { id: documentId, courseId, course: { userId: user.id } },
+  });
+  if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const updated = await prisma.document.update({
+    where: { id: documentId },
+    data: { isActive },
+  });
+
+  return NextResponse.json(updated);
 }
 
 export async function DELETE(

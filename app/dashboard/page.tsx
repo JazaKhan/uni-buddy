@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 
@@ -168,42 +168,62 @@ export default function DashboardPage() {
       ? Math.round(studiedCourses.reduce((sum, c) => sum + c.courseMastery, 0) / studiedCourses.length)
       : null;
 
-  useEffect(() => {
-    fetch("/api/courses")
-      .then((r) => r.json())
-      .then(async (data) => {
-        if (!Array.isArray(data)) return;
-        setCourses(data);
+  // ✅ Stable fetch function — won't be recreated on every render
+  const loadDashboard = useCallback(async () => {
+    try {
+      const r = await fetch("/api/courses");
+      if (!r.ok) return;
+      const data: Course[] = await r.json();
+      if (!Array.isArray(data)) return;
+      setCourses(data);
 
-        const details = await Promise.all(
-          data.map((c: Course) =>
-            fetch(`/api/courses/${c.id}`)
-              .then((r) => r.json())
-              .catch(() => null)
+      const details = await Promise.all(
+        data.map((c) =>
+          fetch(`/api/courses/${c.id}`)
+            .then((r) => r.json())
+            .catch(() => null)
+        )
+      );
+
+      const allTopics: PrioritizedTopic[] = details
+        .flatMap((detail, i) => {
+          if (!detail?.topics) return [];
+          const course = data[i];
+          return (
+            detail.topics as {
+              id: string;
+              name: string;
+              outcomes: { mastery: number; hasMastery: boolean }[];
+            }[]
           )
-        );
+            .filter((t) => t.outcomes.length > 0 && t.outcomes.some((o) => o.hasMastery))
+            .map((t) => {
+              const avgMastery = Math.round(
+                t.outcomes.reduce((sum, o) => sum + o.mastery, 0) / t.outcomes.length
+              );
+              const needsWork = t.outcomes.filter((o) => o.mastery < 70).length;
+              return {
+                id: t.id,
+                name: t.name,
+                courseCode: course.code,
+                avgMastery,
+                needsWork,
+              };
+            });
+        })
+        .sort((a, b) => a.avgMastery - b.avgMastery)
+        .slice(0, 3);
 
-        const allTopics: PrioritizedTopic[] = details
-          .flatMap((detail, i) => {
-            if (!detail?.topics) return [];
-            const course = data[i] as Course;
-            return (detail.topics as { id: string; name: string; outcomes: { mastery: number; hasMastery: boolean }[] }[])
-              .filter((t) => t.outcomes.length > 0 && t.outcomes.some((o) => o.hasMastery))
-              .map((t) => {
-                const avgMastery = Math.round(
-                  t.outcomes.reduce((sum, o) => sum + o.mastery, 0) / t.outcomes.length
-                );
-                const needsWork = t.outcomes.filter((o) => o.mastery < 70).length;
-                return { id: t.id, name: t.name, courseCode: course.code, avgMastery, needsWork };
-              });
-          })
-          .sort((a, b) => a.avgMastery - b.avgMastery)
-          .slice(0, 3);
+      setTopicsToFocus(allTopics);
+    } finally {
+      setLoading(false);
+    }
+  }, []); // ✅ No dependencies — this only needs to run once on mount
 
-        setTopicsToFocus(allTopics);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+  // ✅ Depends on the stable callback, not an inline function
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#8FAF76" }}>

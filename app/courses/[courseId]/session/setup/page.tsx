@@ -1,7 +1,7 @@
 "use client";
 
-import { use, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { use, useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import NavBar from "@/components/NavBar";
 
 type Outcome = { id: string; name: string };
@@ -10,9 +10,10 @@ type Topic = { id: string; name: string; questionCount: number; outcomes: Outcom
 type Mode = "topic" | "outcome";
 type DocStatus = "loading" | "none" | "no_notes" | "has_notes";
 
-export default function SessionSetupPage({ params }: { params: Promise<{ courseId: string }> }) {
-  const { courseId } = use(params);
+function SessionSetupContent({ courseId }: { courseId: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselect = searchParams.get("preselect");
 
   const [topics, setTopics] = useState<Topic[]>([]);
   const [courseCode, setCourseCode] = useState<string | null>(null);
@@ -39,6 +40,7 @@ export default function SessionSetupPage({ params }: { params: Promise<{ courseI
         setTopics(courseData.topics ?? []);
         setCourseCode(courseData.code ?? null);
         if (courseData.topics?.length > 0) setOpenTopics(new Set([courseData.topics[0].id]));
+        if (preselect) setSelectedTopics(new Set([preselect]));
         setLoading(false);
 
         const allDocs: { purpose: string }[] = Array.isArray(docs) ? docs : [];
@@ -51,7 +53,7 @@ export default function SessionSetupPage({ params }: { params: Promise<{ courseI
         }
       })
       .catch(() => router.push("/dashboard"));
-  }, [courseId, router]);
+  }, [courseId, router, preselect]);
 
   // Topic mode helpers
   const allTopicsSelected = topics.length > 0 && selectedTopics.size === topics.length;
@@ -383,5 +385,14 @@ export default function SessionSetupPage({ params }: { params: Promise<{ courseI
         </div>
       </main>
     </div>
+  );
+}
+
+export default function SessionSetupPage({ params }: { params: Promise<{ courseId: string }> }) {
+  const { courseId } = use(params);
+  return (
+    <Suspense fallback={<div className="min-h-screen" style={{ backgroundColor: "#8FAF76" }} />}>
+      <SessionSetupContent courseId={courseId} />
+    </Suspense>
   );
 }

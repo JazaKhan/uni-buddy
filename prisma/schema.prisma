@@ -36,7 +36,7 @@ model Course {
   learningOutcomes LearningOutcome[]
   questions        Question[]
   studySessions    StudySession[]
-  documents Document[]
+  documents        Document[]
 }
 
 model Topic {
@@ -44,7 +44,7 @@ model Topic {
   name String
 
   courseId String
-  course   Course @relation(fields: [courseId], references: [id])
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   learningOutcomes LearningOutcome[]
   questionTopics   QuestionTopic[]
@@ -57,8 +57,8 @@ model LearningOutcome {
 
   topicId  String
   courseId String
-  topic    Topic  @relation(fields: [topicId], references: [id])
-  course   Course @relation(fields: [courseId], references: [id])
+  topic    Topic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   questionOutcomes QuestionOutcome[]
   masteryScores    MasteryScore[]
@@ -71,16 +71,16 @@ enum QuestionType {
 }
 
 model Question {
-  id             String       @id @default(cuid())
-  content        String
-  answer         String?
-  type           QuestionType @default(WRITTEN)
-  options        Json?
-  blanks         Json?
-  isAiGenerated  Boolean      @default(false)
+  id            String       @id @default(cuid())
+  content       String
+  answer        String?
+  type          QuestionType @default(WRITTEN)
+  options       Json?
+  blanks        Json?
+  isAiGenerated Boolean      @default(false)
 
   courseId String
-  course   Course @relation(fields: [courseId], references: [id])
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   questionOutcomes QuestionOutcome[]
   questionTopics   QuestionTopic[]
@@ -91,8 +91,8 @@ model QuestionOutcome {
   questionId        String
   learningOutcomeId String
 
-  question        Question        @relation(fields: [questionId], references: [id])
-  learningOutcome LearningOutcome @relation(fields: [learningOutcomeId], references: [id])
+  question        Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  learningOutcome LearningOutcome @relation(fields: [learningOutcomeId], references: [id], onDelete: Cascade)
 
   @@id([questionId, learningOutcomeId])
 }
@@ -101,8 +101,8 @@ model QuestionTopic {
   questionId String
   topicId    String
 
-  question Question @relation(fields: [questionId], references: [id])
-  topic    Topic    @relation(fields: [topicId], references: [id])
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  topic    Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
 
   @@id([questionId, topicId])
 }
@@ -114,8 +114,8 @@ model StudySession {
 
   userId   String
   courseId String
-  user     User   @relation(fields: [userId], references: [id])
-  course   Course @relation(fields: [courseId], references: [id])
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   questionAttempts QuestionAttempt[]
 }
@@ -128,8 +128,8 @@ model QuestionAttempt {
 
   sessionId  String
   questionId String
-  session    StudySession @relation(fields: [sessionId], references: [id])
-  question   Question     @relation(fields: [questionId], references: [id])
+  session    StudySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question   Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
 }
 
 model MasteryScore {
@@ -139,8 +139,8 @@ model MasteryScore {
 
   userId            String
   learningOutcomeId String
-  user              User            @relation(fields: [userId], references: [id])
-  learningOutcome   LearningOutcome @relation(fields: [learningOutcomeId], references: [id])
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  learningOutcome   LearningOutcome @relation(fields: [learningOutcomeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, learningOutcomeId])
 }
@@ -157,8 +157,9 @@ model Document {
   fileUrl   String
   fileType  String
   purpose   String
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
   courseId String
-  course   Course @relation(fields: [courseId], references: [id])
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 }
