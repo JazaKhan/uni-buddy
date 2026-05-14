@@ -85,10 +85,9 @@ export async function POST(
     await Promise.all(
       docs.map(async (doc) => {
         try {
-          const path = doc.fileUrl.split("/course-documents/")[1];
           const { data, error } = await serviceClient.storage
             .from("course-documents")
-            .createSignedUrl(path, 60);
+            .createSignedUrl(doc.fileUrl, 60);
           if (error || !data?.signedUrl) return null;
           const res = await fetch(data.signedUrl);
           if (!res.ok) return null;
@@ -181,8 +180,12 @@ Available topics: ${topicsStr}`;
   const text = response.content.map((b) => (b.type === "text" ? b.text : "")).join("");
   console.log("RECS 6: Claude raw response:", text?.slice(0, 300));
 
-  const cleaned = text.replace(/```json|```/g, "").trim();
-  const parsed = JSON.parse(cleaned);
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    console.error("RECS: no JSON object found in response:", text.slice(0, 500));
+    return NextResponse.json({ advice: null });
+  }
+  const parsed = JSON.parse(jsonMatch[0]);
   console.log("RECS 7: parsed:", JSON.stringify(parsed).slice(0, 200));
 
   return NextResponse.json({

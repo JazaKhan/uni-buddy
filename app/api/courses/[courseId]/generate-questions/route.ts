@@ -71,10 +71,9 @@ export async function POST(
     await Promise.all(
       documents.map(async (doc) => {
         try {
-          const path = doc.fileUrl.split("/course-documents/")[1];
           const { data, error } = await serviceClient.storage
             .from("course-documents")
-            .createSignedUrl(path, 60);
+            .createSignedUrl(doc.fileUrl, 60);
           if (error || !data?.signedUrl) return null;
           const res = await fetch(data.signedUrl);
           if (!res.ok) { console.log("3a. Failed to fetch doc:", doc.name, res.status); return null; }
@@ -169,15 +168,11 @@ Return ONLY a valid JSON object — no markdown fences, no explanation, no text 
 
     console.log("5. Claude raw response (first 500):", text.slice(0, 500));
 
-    const clean = text.replace(/```json[\s\S]*?```|```[\s\S]*?```/g, (m) => {
-      // extract content inside fences if any
-      const inner = m.replace(/^```json\n?|^```\n?|```$/gm, "");
-      return inner;
-    }).trim();
-
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
     let parsed: { questions?: unknown[] };
     try {
-      parsed = JSON.parse(clean);
+      if (!jsonMatch) throw new Error("No JSON object found in response");
+      parsed = JSON.parse(jsonMatch[0]);
     } catch (parseErr) {
       console.error("5a. JSON parse failed:", parseErr, "\nRaw text:", text);
       return NextResponse.json({ error: "Claude returned invalid JSON", raw: text.slice(0, 1000) }, { status: 500 });

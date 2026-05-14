@@ -41,31 +41,38 @@ export async function POST(
   if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
   if (!purpose) return NextResponse.json({ error: "No purpose" }, { status: 400 });
 
+  if (file.size > 50 * 1024 * 1024) {
+    return NextResponse.json({ error: "File too large — maximum size is 50 MB" }, { status: 413 });
+  }
+
   const serviceClient = createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
   const fileBuffer = await file.arrayBuffer();
+
+  const magic = new Uint8Array(fileBuffer, 0, 5);
+  const isPdf = magic[0] === 0x25 && magic[1] === 0x50 && magic[2] === 0x44 && magic[3] === 0x46 && magic[4] === 0x2D;
+  if (!isPdf) {
+    return NextResponse.json({ error: "Only PDF files are accepted" }, { status: 415 });
+  }
+
   const fileName = `${courseId}/${Date.now()}-${file.name}`;
 
   const { error: uploadError } = await serviceClient.storage
     .from("course-documents")
-    .upload(fileName, fileBuffer, { contentType: file.type });
+    .upload(fileName, fileBuffer, { contentType: "application/pdf" });
 
   if (uploadError) {
     return NextResponse.json({ error: "Upload failed", detail: uploadError.message }, { status: 500 });
   }
 
-  const { data: { publicUrl } } = serviceClient.storage
-    .from("course-documents")
-    .getPublicUrl(fileName);
-
   const document = await prisma.document.create({
     data: {
       name: file.name,
-      fileUrl: publicUrl,
-      fileType: file.type,
+      fileUrl: fileName,
+      fileType: "application/pdf",
       purpose,
       courseId,
     },
@@ -248,8 +255,7 @@ export async function DELETE(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
-  const filePath = doc.fileUrl.split("/course-documents/")[1];
-  await serviceClient.storage.from("course-documents").remove([filePath]);
+  await serviceClient.storage.from("course-documents").remove([doc.fileUrl]);
 
   await prisma.document.delete({ where: { id: documentId } });
 

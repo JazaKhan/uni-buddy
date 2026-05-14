@@ -47,10 +47,9 @@ export async function POST(req: NextRequest) {
     const loaded = await Promise.all(
       docs.map(async (doc) => {
         try {
-          const path = doc.fileUrl.split("/course-documents/")[1];
           const { data, error } = await serviceClient.storage
             .from("course-documents")
-            .createSignedUrl(path, 60);
+            .createSignedUrl(doc.fileUrl, 60);
           if (error || !data?.signedUrl) return null;
           const res = await fetch(data.signedUrl);
           if (!res.ok) return null;
@@ -120,8 +119,9 @@ suggestedMark: true for correct or partial, false for incorrect only.`;
       .map((b) => (b as { type: "text"; text: string }).text)
       .join("");
 
-    const cleaned = text.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
-    const parsed = JSON.parse(cleaned);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON object found in response");
+    const parsed = JSON.parse(jsonMatch[0]);
 
     return NextResponse.json({
       result: parsed.result as "correct" | "partial" | "incorrect",
