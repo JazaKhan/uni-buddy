@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
 import { getPrismaUser } from "@/lib/auth";
+import { serviceClient } from "@/lib/supabase/serviceClient";
 
 export async function GET(
   req: NextRequest,
@@ -18,11 +18,6 @@ export async function GET(
     where: { id: documentId, courseId, course: { userId: user.id } },
   });
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const serviceClient = createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
 
   const { data, error } = await serviceClient.storage
     .from("course-documents")

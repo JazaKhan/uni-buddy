@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
 import { getPrismaUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { loadDocumentBlocks } from "@/lib/docLoader";
 
 export async function POST(
   _req: NextRequest,
@@ -11,13 +11,11 @@ export async function POST(
 ) {
   try {
   const { sessionId } = await params;
-  console.log("RECS 1: route hit, sessionId:", sessionId);
 
   const user = await getPrismaUser();
-  console.log("RECS 2: user found:", user?.id);
   if (!user) return NextResponse.json({ advice: null });
 
-  const allowed = await checkRateLimit(user.id);
+  const allowed = await checkRateLimit(user.id, "ai");
   if (!allowed) {
     return NextResponse.json(
       { error: "Too many requests — please wait a moment before trying again." },
@@ -45,7 +43,6 @@ export async function POST(
     },
   });
 
-  console.log("RECS 3: session found:", !!session, "attempts:", session?.questionAttempts?.length);
   if (!session) return NextResponse.json({ advice: null });
   const courseId = session.courseId;
 
@@ -56,51 +53,20 @@ export async function POST(
     }
   }
 
-  const [masteryScores, topics, docs] = await Promise.all([
-    prisma.masteryScore.findMany({
-      where: { learningOutcomeId: { in: [...touchedOutcomeIds] }, userId: user.id },
-      include: { learningOutcome: { include: { topic: true } } },
-    }),
-    prisma.topic.findMany({
-      where: { courseId },
-      orderBy: { id: "asc" },
-      select: { id: true, name: true },
-    }),
-    prisma.document.findMany({
-      where: { courseId, purpose: { in: ["lecture", "outcomes"] }, isActive: true },
-      orderBy: { createdAt: "desc" },
-    }),
+  const [[masteryScores, topics], docBlocks] = await Promise.all([
+    Promise.all([
+      prisma.masteryScore.findMany({
+        where: { learningOutcomeId: { in: [...touchedOutcomeIds] }, userId: user.id },
+        include: { learningOutcome: { include: { topic: true } } },
+      }),
+      prisma.topic.findMany({
+        where: { courseId },
+        orderBy: { id: "asc" },
+        select: { id: true, name: true },
+      }),
+    ]),
+    loadDocumentBlocks(courseId, ["lecture", "outcomes"]),
   ]);
-
-  console.log("RECS 4: masteryScores:", masteryScores.length, "topics:", topics.length, "docs:", docs.length);
-
-  // Load PDFs in parallel — skip any that fail or exceed 20MB
-  const serviceClient = createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
-  const TWENTY_MB = 20 * 1024 * 1024;
-  const docContents: { data: string; name: string }[] = (
-    await Promise.all(
-      docs.map(async (doc) => {
-        try {
-          const { data, error } = await serviceClient.storage
-            .from("course-documents")
-            .createSignedUrl(doc.fileUrl, 60);
-          if (error || !data?.signedUrl) return null;
-          const res = await fetch(data.signedUrl);
-          if (!res.ok) return null;
-          const buf = await res.arrayBuffer();
-          if (buf.byteLength > TWENTY_MB) return null;
-          return { data: Buffer.from(buf).toString("base64"), name: doc.name };
-        } catch (err) {
-          console.log("Failed to load doc:", doc.name, String(err));
-          return null;
-        }
-      })
-    )
-  ).filter((d): d is { data: string; name: string } => d !== null);
 
   const total = session.questionAttempts.length;
   const correct = session.questionAttempts.filter((a) => a.isCorrect).length;
@@ -127,7 +93,7 @@ export async function POST(
   const topicsStr = topics.map((t) => `{ "id": "${t.id}", "name": "${t.name}" }`).join(", ");
 
   const promptText = `You are a university study coach reviewing a student's practice session.
-${docContents.length > 0
+${docBlocks.length > 0
     ? "The student's course notes are provided above. Base your advice ONLY on content explicitly present in these documents — do not draw on general university or textbook knowledge not present in the files. Reference specific concepts, examples, and terminology from the notes."
     : "No course notes are uploaded for this course. Base advice only on the session performance data and outcome names provided below — do not introduce outside knowledge."}
 
@@ -155,19 +121,10 @@ Return ONLY valid JSON, no other text:
 
 Available topics: ${topicsStr}`;
 
-  console.log("RECS 5: calling Claude...");
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
   const contentBlocks: Anthropic.MessageParam["content"] = [
-    ...docContents.map((d) => ({
-      type: "document" as const,
-      source: {
-        type: "base64" as const,
-        media_type: "application/pdf" as const,
-        data: d.data,
-      },
-      title: d.name,
-    })),
+    ...docBlocks,
     { type: "text" as const, text: promptText },
   ];
 
@@ -178,15 +135,13 @@ Available topics: ${topicsStr}`;
   });
 
   const text = response.content.map((b) => (b.type === "text" ? b.text : "")).join("");
-  console.log("RECS 6: Claude raw response:", text?.slice(0, 300));
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    console.error("RECS: no JSON object found in response:", text.slice(0, 500));
+    console.error("Recommendations: no JSON object found in response:", text.slice(0, 500));
     return NextResponse.json({ advice: null });
   }
   const parsed = JSON.parse(jsonMatch[0]);
-  console.log("RECS 7: parsed:", JSON.stringify(parsed).slice(0, 200));
 
   return NextResponse.json({
     advice: String(parsed.advice),

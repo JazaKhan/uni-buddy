@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getPrismaUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { loadDocumentBlocks } from "@/lib/docLoader";
 
 const anthropic = new Anthropic();
 
 export async function POST(req: NextRequest) {
   const user = await getPrismaUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const allowed = await checkRateLimit(user.id);
+  const allowed = await checkRateLimit(user.id, "ai");
   if (!allowed) {
     return NextResponse.json(
       { error: "Too many requests — please wait a moment before trying again." },
@@ -26,51 +25,16 @@ export async function POST(req: NextRequest) {
 
   const { question, correctAnswer, userAnswer, outcomeName, courseId } = body;
 
-  const docContents: { data: string }[] = [];
-  if (courseId) {
-    const docs = await prisma.document.findMany({
-      where: {
-        courseId,
-        purpose: { in: ["lecture", "outcomes"] },
-        isActive: true,
-      },
-      orderBy: { createdAt: "desc" },
-      take: 2,
-    });
-
-    const serviceClient = createServiceClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    const TWENTY_MB = 20 * 1024 * 1024;
-    const loaded = await Promise.all(
-      docs.map(async (doc) => {
-        try {
-          const { data, error } = await serviceClient.storage
-            .from("course-documents")
-            .createSignedUrl(doc.fileUrl, 60);
-          if (error || !data?.signedUrl) return null;
-          const res = await fetch(data.signedUrl);
-          if (!res.ok) return null;
-          const buf = await res.arrayBuffer();
-          if (buf.byteLength > TWENTY_MB) return null;
-          return { data: Buffer.from(buf).toString("base64") };
-        } catch (err) {
-          console.log("Failed to load doc:", doc.name, String(err));
-          return null;
-        }
-      })
-    );
-    docContents.push(...loaded.filter((d): d is { data: string } => d !== null));
-  }
+  const docBlocks = courseId
+    ? await loadDocumentBlocks(courseId, ["lecture", "outcomes"], 2)
+    : [];
 
   if (!question || !userAnswer) {
     return NextResponse.json({ result: "incorrect", explanation: "Missing question or answer.", suggestedMark: false });
   }
 
   const prompt = `You are a fair and encouraging university study coach grading a student's answer.
-${docContents.length > 0
+${docBlocks.length > 0
     ? "Course materials are provided above. Grade based ONLY on what is taught in these specific materials — reference the actual content, examples, and terminology from the notes."
     : "No course materials available — grade based on general correctness."}
 
@@ -96,14 +60,7 @@ Return ONLY valid JSON:
 suggestedMark: true for correct or partial, false for incorrect only.`;
 
   const contentBlocks: Anthropic.MessageParam["content"] = [
-    ...docContents.map((d) => ({
-      type: "document" as const,
-      source: {
-        type: "base64" as const,
-        media_type: "application/pdf" as const,
-        data: d.data,
-      },
-    })),
+    ...docBlocks,
     { type: "text" as const, text: prompt },
   ];
 

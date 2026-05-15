@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
 import { getPrismaUser } from "@/lib/auth";
+import { serviceClient } from "@/lib/supabase/serviceClient";
 
 export async function GET(
   _req: NextRequest,
@@ -44,11 +44,6 @@ export async function POST(
   if (file.size > 50 * 1024 * 1024) {
     return NextResponse.json({ error: "File too large — maximum size is 50 MB" }, { status: 413 });
   }
-
-  const serviceClient = createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
 
   const fileBuffer = await file.arrayBuffer();
 
@@ -251,11 +246,19 @@ export async function DELETE(
   });
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const serviceClient = createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-  await serviceClient.storage.from("course-documents").remove([doc.fileUrl]);
+  // Legacy rows stored the full public URL; new rows store just the storage path.
+  const storagePath = doc.fileUrl.startsWith("http")
+    ? doc.fileUrl.split("/course-documents/")[1]
+    : doc.fileUrl;
+
+  try {
+    const { error: removeError } = await serviceClient.storage
+      .from("course-documents")
+      .remove([storagePath]);
+    if (removeError) console.error("Storage remove failed:", removeError.message);
+  } catch (err) {
+    console.error("Storage remove threw:", err);
+  }
 
   await prisma.document.delete({ where: { id: documentId } });
 
