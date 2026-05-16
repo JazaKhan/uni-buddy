@@ -5,9 +5,7 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { loadDocumentBlocks, DocBlock } from "@/lib/docLoader";
 import { prisma } from "@/lib/prisma";
 import { anthropic } from "@/lib/anthropic";
-
-const VALID_RESULTS = ["correct", "partial", "incorrect"] as const;
-type GradingResult = (typeof VALID_RESULTS)[number];
+import { sanitizeHtml, extractJsonFromText, validateGradingResult } from "@/lib/checkAnswerHelpers";
 
 export async function POST(req: NextRequest) {
   let user;
@@ -32,6 +30,9 @@ export async function POST(req: NextRequest) {
   }
 
   const { question, correctAnswer, userAnswer, outcomeName, courseId } = body;
+  const safeQuestion = sanitizeHtml(question ?? "");
+  const safeAnswer = sanitizeHtml(userAnswer ?? "");
+  const safeOutcome = sanitizeHtml(outcomeName ?? "");
 
   if (!question || !userAnswer) {
     return NextResponse.json({ error: "Missing question or answer" }, { status: 400 });
@@ -75,10 +76,9 @@ ${
     : "No course materials available — grade based on general correctness."
 }
 
-<question>${question}</question>
-<learning_outcome>${outcomeName || "Not specified"}</learning_outcome>
-${correctAnswer ? `<model_answer>${correctAnswer}</model_answer>` : "No model answer — grade on whether the answer is reasonable."}
-<student_answer>${userAnswer}</student_answer>
+<question>${safeQuestion}</question>
+<learning_outcome>${safeOutcome || "Not specified"}</learning_outcome>
+<student_answer>${safeAnswer}</student_answer>
 
 Grading rules:
 - If the student's answer conveys the same meaning as the model answer, even in different words → "correct"
@@ -113,13 +113,10 @@ suggestedMark: true for correct or partial, false for incorrect only.`;
       .map((b) => (b as { type: "text"; text: string }).text)
       .join("");
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON object found in response");
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = extractJsonFromText(text);
+    if (!parsed) throw new Error("No JSON object found in response");
 
-    const result: GradingResult = (VALID_RESULTS as readonly string[]).includes(parsed.result)
-      ? parsed.result
-      : "incorrect";
+    const result = validateGradingResult(parsed.result);
 
     return NextResponse.json({
       result,

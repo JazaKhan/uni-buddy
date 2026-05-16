@@ -15,7 +15,7 @@ type RawAiQuestion = {
   outcomeIds: string[];
   topicIds: string[];
 };
-type Confidence = "guessed" | "unsure" | "confident";
+type Confidence = "GUESSED" | "UNSURE" | "CONFIDENT";
 
 type Question = {
   id: string;
@@ -265,7 +265,7 @@ function SessionContent({ courseId }: { courseId: string }) {
     }
   }
 
-  const confidenceColors: Record<Confidence, string> = { guessed: "#F5C842", unsure: "#FF6B6B", confident: "#5CB85C" };
+  const confidenceColors: Record<Confidence, string> = { GUESSED: "#F5C842", UNSURE: "#FF6B6B", CONFIDENT: "#5CB85C" };
 
   if (loading) {
     return (
@@ -465,7 +465,7 @@ function SessionContent({ courseId }: { courseId: string }) {
                   <div className="flex flex-col gap-2">
                     <label className="text-xs text-gray-500 font-medium text-center">CONFIDENCE LEVEL</label>
                     <div className="flex gap-3">
-                      {(["guessed", "unsure", "confident"] as const).map((level) => (
+                      {(["GUESSED", "UNSURE", "CONFIDENT"] as const).map((level) => (
                         <button
                           key={level}
                           onClick={() => { setWrittenConfidence(level); logAttempt(mark, level); }}
@@ -473,7 +473,7 @@ function SessionContent({ courseId }: { courseId: string }) {
                           className="flex-1 py-2 rounded-full text-sm font-bold text-white capitalize transition-all disabled:opacity-50"
                           style={{ backgroundColor: confidenceColors[level] }}
                         >
-                          {level.charAt(0).toUpperCase() + level.slice(1)}
+                          {level.charAt(0) + level.slice(1).toLowerCase()}
                         </button>
                       ))}
                     </div>
@@ -533,7 +533,7 @@ function SessionContent({ courseId }: { courseId: string }) {
                       <div className="flex flex-col gap-2">
                         <label className="text-xs text-gray-500 font-medium text-center">CONFIDENCE LEVEL</label>
                         <div className="flex gap-3">
-                          {(["guessed", "unsure", "confident"] as const).map((level) => (
+                          {(["GUESSED", "UNSURE", "CONFIDENT"] as const).map((level) => (
                             <button
                               key={level}
                               onClick={() => { setCheckedConfidence(level); logAttempt(autoCorrect!, level); }}
@@ -541,7 +541,7 @@ function SessionContent({ courseId }: { courseId: string }) {
                               className="flex-1 py-2 rounded-full text-sm font-bold text-white capitalize transition-all disabled:opacity-50"
                               style={{ backgroundColor: confidenceColors[level] }}
                             >
-                              {level.charAt(0).toUpperCase() + level.slice(1)}
+                              {level.charAt(0) + level.slice(1).toLowerCase()}
                             </button>
                           ))}
                         </div>
@@ -611,7 +611,7 @@ function SessionContent({ courseId }: { courseId: string }) {
                       <div className="flex flex-col gap-2">
                         <label className="text-xs text-gray-500 font-medium text-center">CONFIDENCE LEVEL</label>
                         <div className="flex gap-3">
-                          {(["guessed", "unsure", "confident"] as const).map((level) => (
+                          {(["GUESSED", "UNSURE", "CONFIDENT"] as const).map((level) => (
                             <button
                               key={level}
                               onClick={() => { setCheckedConfidence(level); logAttempt(autoCorrect!, level); }}
@@ -619,7 +619,7 @@ function SessionContent({ courseId }: { courseId: string }) {
                               className="flex-1 py-2 rounded-full text-sm font-bold text-white capitalize transition-all disabled:opacity-50"
                               style={{ backgroundColor: confidenceColors[level] }}
                             >
-                              {level.charAt(0).toUpperCase() + level.slice(1)}
+                              {level.charAt(0) + level.slice(1).toLowerCase()}
                             </button>
                           ))}
                         </div>
