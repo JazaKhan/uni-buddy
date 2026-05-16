@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
 import { getPrismaUser } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 export async function POST(
   req: NextRequest,
@@ -10,6 +12,14 @@ export async function POST(
   const { courseId } = await params;
   const user = await getPrismaUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const allowed = await checkRateLimit(user.id);
+
+  if (!allowed) {
+  return NextResponse.json(
+    { error: "Too many requests — please wait a moment before trying again." },
+    { status: 429 }
+  );
+  }
 
   const course = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
   if (!course) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -51,12 +61,22 @@ export async function POST(
     | { type: "text"; text: string }
     | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } };
 
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
   const TWENTY_MB = 20 * 1024 * 1024;
   const docBlocks: ContentBlock[] = (
     await Promise.all(
       documents.map(async (doc) => {
         try {
-          const res = await fetch(doc.fileUrl);
+          const path = doc.fileUrl.split("/course-documents/")[1];
+          const { data, error } = await serviceClient.storage
+            .from("course-documents")
+            .createSignedUrl(path, 60);
+          if (error || !data?.signedUrl) return null;
+          const res = await fetch(data.signedUrl);
           if (!res.ok) { console.log("3a. Failed to fetch doc:", doc.name, res.status); return null; }
           const buf = await res.arrayBuffer();
           if (buf.byteLength > TWENTY_MB) { console.log("3a. Skipping doc >20MB:", doc.name); return null; }
@@ -65,7 +85,7 @@ export async function POST(
             source: { type: "base64" as const, media_type: "application/pdf" as const, data: Buffer.from(buf).toString("base64") },
           };
         } catch (err) {
-          console.log("3b. Error fetching doc:", doc.name, String(err));
+          console.log("Failed to load doc:", doc.name, String(err));
           return null;
         }
       })

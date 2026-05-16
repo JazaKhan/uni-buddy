@@ -9,6 +9,7 @@ type CourseRow = {
   id: string;
   name: string;
   code: string | null;
+  credits: number;
   isArchived: boolean;
 };
 
@@ -135,7 +136,7 @@ export default function ProfilePage() {
                   )}
                   <span className="text-xs text-gray-600">{course.name}</span>
                 </div>
-                <span className="text-xs font-bold text-gray-700">—</span>
+                <span className="text-xs text-gray-400 shrink-0">{course.credits} cr</span>
               </div>
             ))}
           </div>

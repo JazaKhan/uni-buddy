@@ -6,6 +6,15 @@ import NavBar from "@/components/NavBar";
 
 type QuestionType = "WRITTEN" | "MULTIPLE_CHOICE" | "FILL_IN_BLANK";
 type MCOption = { id: string; text: string; isCorrect: boolean };
+type RawAiQuestion = {
+  type: QuestionType;
+  content: string;
+  answer: string | null;
+  options: MCOption[] | null;
+  blanks: string[] | null;
+  outcomeIds: string[];
+  topicIds: string[];
+};
 type Confidence = "guessed" | "unsure" | "confident";
 
 type Question = {
@@ -95,7 +104,7 @@ function SessionContent({ courseId }: { courseId: string }) {
         const { questions: rawQs, warning } = await genRes.json();
         if (warning === "no_notes") setNoNotesBanner(true);
 
-        const aiQuestions: Question[] = (rawQs as any[]).map((q) => ({
+        const aiQuestions: Question[] = (rawQs as RawAiQuestion[]).map((q) => ({
           ...q,
           id: genTempId(),
           isAiGenerated: true,
@@ -210,6 +219,7 @@ function SessionContent({ courseId }: { courseId: string }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        courseId,
         question: question?.content,
         correctAnswer: question?.answer ?? null,
         userAnswer: writtenAnswer,

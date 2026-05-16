@@ -8,6 +8,7 @@ type Course = {
   id: string;
   name: string;
   code: string | null;
+  credits: number;
   isArchived: boolean;
   createdAt: string;
   courseMastery: number;
@@ -28,13 +29,23 @@ function CourseCard({ course }: { course: Course }) {
       className="flex flex-col gap-3 p-6 rounded-3xl shadow-lg"
       style={{ backgroundColor: "#FEFEE8" }}
     >
-      {course.code && (
-        <span
-          className="self-start px-3 py-1 rounded-full text-xs font-bold text-gray-700"
-          style={{ backgroundColor: "#D6EEF8" }}
-        >
-          {course.code}
-        </span>
+      {(course.code || course.credits) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {course.code && (
+            <span
+              className="px-3 py-1 rounded-full text-xs font-bold text-gray-700"
+              style={{ backgroundColor: "#D6EEF8" }}
+            >
+              {course.code}
+            </span>
+          )}
+          <span
+            className="px-3 py-1 rounded-full text-xs font-bold text-gray-700"
+            style={{ backgroundColor: "#D6F8E8" }}
+          >
+            {course.credits} cr
+          </span>
+        </div>
       )}
       <p className="text-sm font-semibold text-gray-800">{course.name}</p>
       <p className="text-xs text-gray-500">
@@ -81,6 +92,7 @@ function AddCourseModal({
 }) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  const [credits, setCredits] = useState(3);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -92,7 +104,7 @@ function AddCourseModal({
       const res = await fetch("/api/courses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, code }),
+        body: JSON.stringify({ name, code, credits }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -123,13 +135,26 @@ function AddCourseModal({
             required
             className="px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300"
           />
-          <input
-            type="text"
-            placeholder="Course Code (optional)"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            className="px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300"
-          />
+          <div className="flex gap-3">
+            <input
+              type="text"
+              placeholder="Course Code (optional)"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300"
+            />
+            <div className="flex flex-col gap-1 shrink-0">
+              <label className="text-xs text-gray-500 font-medium px-1">Credits</label>
+              <input
+                type="number"
+                min={1}
+                max={6}
+                value={credits}
+                onChange={(e) => setCredits(Math.max(1, Math.min(6, parseInt(e.target.value) || 3)))}
+                className="w-16 px-3 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300 text-center"
+              />
+            </div>
+          </div>
           {error && <p className="text-red-500 text-xs">{error}</p>}
           <div className="flex gap-3 justify-end">
             <button
@@ -163,9 +188,10 @@ export default function DashboardPage() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
 
   const studiedCourses = courses.filter((c) => c.courseMastery > 0);
+  const totalCredits = studiedCourses.reduce((sum, c) => sum + c.credits, 0);
   const overallMastery =
-    studiedCourses.length > 0
-      ? Math.round(studiedCourses.reduce((sum, c) => sum + c.courseMastery, 0) / studiedCourses.length)
+    totalCredits > 0
+      ? Math.round(studiedCourses.reduce((sum, c) => sum + c.courseMastery * c.credits, 0) / totalCredits)
       : null;
 
   // ✅ Stable fetch function — won't be recreated on every render

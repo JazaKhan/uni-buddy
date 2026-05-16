@@ -1,18 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getPrismaUser } from "@/lib/auth";
-
-function weightedScore(isCorrect: boolean, confidence: string): number {
-  if (isCorrect) {
-    if (confidence === "CONFIDENT") return 1.0;
-    if (confidence === "UNSURE") return 0.7;
-    return 0.5;
-  } else {
-    if (confidence === "CONFIDENT") return 0.0;
-    if (confidence === "UNSURE") return 0.2;
-    return 0.1;
-  }
-}
+import { weightedScore } from "@/lib/mastery";
 
 export async function GET(
   _req: NextRequest,
