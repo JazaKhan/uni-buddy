@@ -77,11 +77,10 @@ export default function ProfilePage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 w-full">
+        <div className="grid grid-cols-2 gap-4 w-full">
           {[
             { label: 'Active Courses', value: loadingCourses ? '—' : courses.filter((c) => !c.isArchived).length },
             { label: 'Archived', value: loadingCourses ? '—' : courses.filter((c) => c.isArchived).length },
-            { label: 'Study Hours', value: '—' },
           ].map((stat) => (
             <div
               key={stat.label}

@@ -15,28 +15,47 @@ export async function DELETE(
   });
   if (!topic) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Questions belong to Course directly (not Topic), so cascade won't touch them.
-  // Manually delete questions that exist exclusively under this topic.
-  const topicQuestions = await prisma.questionTopic.findMany({
-    where: { topicId },
-    select: { questionId: true },
-  });
+  // Collect LOs and questions linked to this topic up front
+  const [learningOutcomes, topicQuestions] = await Promise.all([
+    prisma.learningOutcome.findMany({ where: { topicId }, select: { id: true } }),
+    prisma.questionTopic.findMany({ where: { topicId }, select: { questionId: true } }),
+  ]);
+  const loIds = learningOutcomes.map((lo) => lo.id);
   const candidateIds = topicQuestions.map((q) => q.questionId);
 
+  // Questions belong to Course (not Topic), so they must be cleaned up manually.
+  // Only delete questions that are not linked to any other topic.
+  let exclusiveQuestionIds: string[] = [];
   if (candidateIds.length > 0) {
     const linkedElsewhere = await prisma.questionTopic.findMany({
       where: { questionId: { in: candidateIds }, topicId: { not: topicId } },
       select: { questionId: true },
     });
     const survivingIds = new Set(linkedElsewhere.map((q) => q.questionId));
-    const toDeleteIds = candidateIds.filter((id) => !survivingIds.has(id));
+    exclusiveQuestionIds = candidateIds.filter((id) => !survivingIds.has(id));
+  }
 
-    if (toDeleteIds.length > 0) {
-      await prisma.questionAttempt.deleteMany({ where: { questionId: { in: toDeleteIds } } });
-      await prisma.questionOutcome.deleteMany({ where: { questionId: { in: toDeleteIds } } });
-      await prisma.questionTopic.deleteMany({ where: { questionId: { in: toDeleteIds } } });
-      await prisma.question.deleteMany({ where: { id: { in: toDeleteIds } } });
-    }
+  // 1. Delete LO dependents (MasteryScore, QuestionOutcome via loId)
+  if (loIds.length > 0) {
+    await prisma.masteryScore.deleteMany({ where: { learningOutcomeId: { in: loIds } } });
+    await prisma.questionOutcome.deleteMany({ where: { learningOutcomeId: { in: loIds } } });
+  }
+
+  // 2. Delete exclusive-question dependents (QuestionAttempt, any remaining QuestionOutcome)
+  if (exclusiveQuestionIds.length > 0) {
+    await prisma.questionAttempt.deleteMany({ where: { questionId: { in: exclusiveQuestionIds } } });
+    await prisma.questionOutcome.deleteMany({ where: { questionId: { in: exclusiveQuestionIds } } });
+  }
+
+  // 3. Remove all QuestionTopic rows for this topic (exclusive and shared questions)
+  await prisma.questionTopic.deleteMany({ where: { topicId } });
+
+  // 4. Delete exclusive questions and LOs
+  if (exclusiveQuestionIds.length > 0) {
+    await prisma.question.deleteMany({ where: { id: { in: exclusiveQuestionIds } } });
+  }
+  if (loIds.length > 0) {
+    await prisma.learningOutcome.deleteMany({ where: { topicId } });
   }
 
   await prisma.topic.delete({ where: { id: topicId } });

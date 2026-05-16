@@ -73,22 +73,21 @@ export async function GET(
   const existingMap = new Map(existingScores.map((s) => [s.learningOutcomeId, s.score]));
 
   // Decaying average: new session counts 60%, history counts 40% — no findUnique inside the loop
-  await Promise.all(
-    Object.entries(outcomeAttempts).map(async ([learningOutcomeId, scores]) => {
-      const sessionAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
-      const existing = existingMap.get(learningOutcomeId);
+  const upsertOps = Object.entries(outcomeAttempts).map(([learningOutcomeId, scores]) => {
+    const sessionAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
+    const existing = existingMap.get(learningOutcomeId);
 
-      const newScore = existing !== undefined
-        ? Math.round(((existing / 100) * 0.4 + sessionAvg * 0.6) * 100)
-        : Math.round(sessionAvg * 100);
+    const newScore = existing !== undefined
+      ? Math.round(((existing / 100) * 0.4 + sessionAvg * 0.6) * 100)
+      : Math.round(sessionAvg * 100);
 
-      await prisma.masteryScore.upsert({
-        where: { userId_learningOutcomeId: { userId: user.id, learningOutcomeId } },
-        update: { score: newScore },
-        create: { userId: user.id, learningOutcomeId, score: newScore },
-      });
-    })
-  );
+    return prisma.masteryScore.upsert({
+      where: { userId_learningOutcomeId: { userId: user.id, learningOutcomeId } },
+      update: { score: newScore },
+      create: { userId: user.id, learningOutcomeId, score: newScore },
+    });
+  });
+  await prisma.$transaction(upsertOps);
 
   const attempts = session.questionAttempts;
   const total = attempts.length;

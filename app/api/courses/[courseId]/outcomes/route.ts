@@ -1,24 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getPrismaUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-async function getAuthedUser() {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser?.email) return null;
-  return prisma.user.upsert({
-    where: { email: authUser.email },
-    update: {},
-    create: { email: authUser.email },
-  });
-}
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ courseId: string }> }
 ) {
   const { courseId } = await params;
-  const user = await getAuthedUser();
+  let user;
+  try { user = await getPrismaUser(); } catch { return NextResponse.json({ error: "Server error" }, { status: 500 }); }
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { name, topicId } = await req.json();
@@ -42,7 +32,8 @@ export async function DELETE(
   { params }: { params: Promise<{ courseId: string }> }
 ) {
   const { courseId } = await params;
-  const user = await getAuthedUser();
+  let user;
+  try { user = await getPrismaUser(); } catch { return NextResponse.json({ error: "Server error" }, { status: 500 }); }
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { outcomeId } = await req.json();
@@ -53,10 +44,11 @@ export async function DELETE(
   });
   if (!outcome) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Manually cascade: delete join rows first
-  await prisma.masteryScore.deleteMany({ where: { learningOutcomeId: outcomeId } });
-  await prisma.questionOutcome.deleteMany({ where: { learningOutcomeId: outcomeId } });
-  await prisma.learningOutcome.delete({ where: { id: outcomeId } });
+  await prisma.$transaction([
+    prisma.masteryScore.deleteMany({ where: { learningOutcomeId: outcomeId } }),
+    prisma.questionOutcome.deleteMany({ where: { learningOutcomeId: outcomeId } }),
+    prisma.learningOutcome.delete({ where: { id: outcomeId } }),
+  ]);
 
   return NextResponse.json({ success: true });
 }

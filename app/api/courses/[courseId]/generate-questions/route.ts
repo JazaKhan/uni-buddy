@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import Anthropic from "@anthropic-ai/sdk";
 import { getPrismaUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { createClient as createServiceClient } from "@supabase/supabase-js";
+import { loadDocumentBlocks, DocBlock } from "@/lib/docLoader";
+import { anthropic } from "@/lib/anthropic";
 
 export async function POST(
   req: NextRequest,
@@ -12,13 +12,13 @@ export async function POST(
   const { courseId } = await params;
   const user = await getPrismaUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const allowed = await checkRateLimit(user.id);
 
+  const allowed = await checkRateLimit(user.id, "ai");
   if (!allowed) {
-  return NextResponse.json(
-    { error: "Too many requests — please wait a moment before trying again." },
-    { status: 429 }
-  );
+    return NextResponse.json(
+      { error: "Too many requests — please wait a moment before trying again." },
+      { status: 429 }
+    );
   }
 
   const course = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
@@ -27,9 +27,7 @@ export async function POST(
   const body = await req.json();
   const topicIds: string[] = (body.topicIds ?? []).filter(Boolean);
   const outcomeIds: string[] = (body.outcomeIds ?? []).filter(Boolean);
-  const count: number = body.count ?? 10;
-
-  console.log("1. generate-questions hit, body:", { topicIds, outcomeIds, count });
+  const count: number = Math.min(Math.max(1, Number(body.count) || 10), 40);
 
   // Fetch outcomes: use explicit outcomeIds > topicIds > all course outcomes as fallback
   const outcomes = await (
@@ -40,59 +38,18 @@ export async function POST(
       : prisma.learningOutcome.findMany({ where: { courseId }, include: { topic: true } })
   );
 
-  console.log("2. Outcomes fetched:", outcomes.length);
-
   if (outcomes.length === 0) {
-    console.log("2a. No outcomes found — returning 500");
-    return NextResponse.json({ error: "No outcomes found for this course. Add learning outcomes before generating questions." }, { status: 500 });
+    return NextResponse.json(
+      { error: "No outcomes found for this course. Add learning outcomes before generating questions." },
+      { status: 400 }
+    );
   }
 
-  // Fetch up to 3 lecture/outcomes documents for context
-  const documents = await prisma.document.findMany({
-    where: { courseId, purpose: { in: ["lecture", "outcomes"] }, isActive: true },
-    orderBy: { createdAt: "desc" },
-  });
-  const hasNotesDocs = documents.length > 0;
+  type ContentBlock = { type: "text"; text: string } | DocBlock;
 
-  console.log("3. Documents fetched:", documents.length);
+  const docBlocks = await loadDocumentBlocks(courseId, ["lecture", "outcomes"]);
+  const hasNotesDocs = docBlocks.length > 0;
 
-  // Build document content blocks for Claude — fetch all in parallel, skip >20MB
-  type ContentBlock =
-    | { type: "text"; text: string }
-    | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } };
-
-  const serviceClient = createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
-  const TWENTY_MB = 20 * 1024 * 1024;
-  const docBlocks: ContentBlock[] = (
-    await Promise.all(
-      documents.map(async (doc) => {
-        try {
-          const path = doc.fileUrl.split("/course-documents/")[1];
-          const { data, error } = await serviceClient.storage
-            .from("course-documents")
-            .createSignedUrl(path, 60);
-          if (error || !data?.signedUrl) return null;
-          const res = await fetch(data.signedUrl);
-          if (!res.ok) { console.log("3a. Failed to fetch doc:", doc.name, res.status); return null; }
-          const buf = await res.arrayBuffer();
-          if (buf.byteLength > TWENTY_MB) { console.log("3a. Skipping doc >20MB:", doc.name); return null; }
-          return {
-            type: "document" as const,
-            source: { type: "base64" as const, media_type: "application/pdf" as const, data: Buffer.from(buf).toString("base64") },
-          };
-        } catch (err) {
-          console.log("Failed to load doc:", doc.name, String(err));
-          return null;
-        }
-      })
-    )
-  ).filter((b): b is ContentBlock & { type: "document" } => b !== null);
-
-  // Build outcome list with real DB ids explicitly injected into the prompt
   const outcomeList = outcomes
     .map((o) => `- id: "${o.id}" | topicId: "${o.topic.id}" | topic: "${o.topic.name}" | outcome: "${o.name}"`)
     .join("\n");
@@ -150,14 +107,10 @@ Return ONLY a valid JSON object — no markdown fences, no explanation, no text 
   ]
 }`;
 
-  console.log("4. Calling Claude with", outcomes.length, "outcomes and", docBlocks.length, "doc blocks");
-
   try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-
     const contentBlocks: ContentBlock[] = [...docBlocks, { type: "text", text: prompt }];
 
-    const response = await client.messages.create({
+    const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 8192,
       messages: [{ role: "user", content: contentBlocks }],
@@ -167,28 +120,24 @@ Return ONLY a valid JSON object — no markdown fences, no explanation, no text 
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("");
 
-    console.log("5. Claude raw response (first 500):", text.slice(0, 500));
-
-    const clean = text.replace(/```json[\s\S]*?```|```[\s\S]*?```/g, (m) => {
-      // extract content inside fences if any
-      const inner = m.replace(/^```json\n?|^```\n?|```$/gm, "");
-      return inner;
-    }).trim();
-
     let parsed: { questions?: unknown[] };
     try {
-      parsed = JSON.parse(clean);
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON object found in response");
+      parsed = JSON.parse(jsonMatch[0]);
     } catch (parseErr) {
-      console.error("5a. JSON parse failed:", parseErr, "\nRaw text:", text);
+      console.error("JSON parse failed:", parseErr, "\nRaw text:", text);
       return NextResponse.json({ error: "Claude returned invalid JSON", raw: text.slice(0, 1000) }, { status: 500 });
     }
 
     const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
-    console.log("6. Parsed questions:", questions.length);
 
     if (questions.length === 0) {
-      console.error("6a. Claude returned 0 questions. Full response:", text);
-      return NextResponse.json({ error: "AI generated no questions — try again or check your learning outcomes." }, { status: 500 });
+      console.error("Claude returned 0 questions. Full response:", text);
+      return NextResponse.json(
+        { error: "AI generated no questions — try again or check your learning outcomes." },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({

@@ -31,11 +31,10 @@ function ResultsContent({ courseId }: { courseId: string }) {
       .then((data) => { setResults(data); setLoading(false); })
       .catch(() => router.push(`/courses/${courseId}`));
 
-    console.log("RESULTS: fetching recommendations for session", sessionId);
     fetch(`/api/sessions/${sessionId}/recommendations`, { method: "POST" })
       .then((r) => { if (!r.ok) throw new Error(`http ${r.status}`); return r.json(); })
-      .then((d) => { console.log("RESULTS: recommendations response", d); if (d.advice) setRecommendations(d); })
-      .catch((e) => console.error("RESULTS: recommendations fetch failed", e))
+      .then((d) => { if (d.advice) setRecommendations(d); })
+      .catch(() => {})
       .finally(() => setLoadingRecs(false));
   }, [sessionId, courseId, router]);
 
