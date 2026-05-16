@@ -31,7 +31,7 @@ model Course {
   createdAt  DateTime @default(now())
 
   userId String
-  user   User   @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   topics           Topic[]
   learningOutcomes LearningOutcome[]

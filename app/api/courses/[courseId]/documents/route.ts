@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import Anthropic from "@anthropic-ai/sdk";
 import { getPrismaUser } from "@/lib/auth";
 import { serviceClient } from "@/lib/supabase/serviceClient";
+import { anthropic } from "@/lib/anthropic";
+
+const VALID_PURPOSES = ["lecture", "outcomes", "quiz"] as const;
+type DocumentPurpose = (typeof VALID_PURPOSES)[number];
+
+function normaliseStoragePath(fileUrl: string): string | null {
+  if (!fileUrl.startsWith("http")) return fileUrl;
+  const parts = fileUrl.split("/course-documents/");
+  return parts.length === 2 ? parts[1] : null;
+}
 
 export async function GET(
   _req: NextRequest,
@@ -41,6 +50,14 @@ export async function POST(
   if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
   if (!purpose) return NextResponse.json({ error: "No purpose" }, { status: 400 });
 
+  if (!(VALID_PURPOSES as readonly string[]).includes(purpose)) {
+    return NextResponse.json(
+      { error: `purpose must be one of: ${VALID_PURPOSES.join(", ")}` },
+      { status: 400 }
+    );
+  }
+  const validPurpose = purpose as DocumentPurpose;
+
   if (file.size > 50 * 1024 * 1024) {
     return NextResponse.json({ error: "File too large — maximum size is 50 MB" }, { status: 413 });
   }
@@ -68,14 +85,13 @@ export async function POST(
       name: file.name,
       fileUrl: fileName,
       fileType: "application/pdf",
-      purpose,
+      purpose: validPurpose,
       courseId,
     },
   });
 
-  if (purpose === "outcomes") {
+  if (validPurpose === "outcomes") {
     try {
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
       const base64 = Buffer.from(new Uint8Array(fileBuffer)).toString("base64");
 
       const prompt = `You are analyzing a university course document. Extract the learning outcomes and topics from this document.
@@ -101,7 +117,7 @@ Rules:
 - If no clear topics exist, use a single topic named after the document subject
 - Maximum 10 topics, maximum 8 outcomes per topic`;
 
-      const response = await client.messages.create({
+      const response = await anthropic.messages.create({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 2048,
         messages: [
@@ -110,11 +126,7 @@ Rules:
             content: [
               {
                 type: "document",
-                source: {
-                  type: "base64",
-                  media_type: "application/pdf",
-                  data: base64,
-                },
+                source: { type: "base64", media_type: "application/pdf", data: base64 },
               },
               { type: "text", text: prompt },
             ],
@@ -123,8 +135,15 @@ Rules:
       });
 
       const text = response.content[0].type === "text" ? response.content[0].text : "";
-      const clean = text.replace(/```json|```/g, "").trim();
-      const extracted = JSON.parse(clean);
+
+      let extracted: unknown;
+      try {
+        const clean = text.replace(/```json|```/g, "").trim();
+        extracted = JSON.parse(clean);
+      } catch (parseErr) {
+        console.error("Outcomes extraction: JSON parse failed:", parseErr, "\nRaw:", text.slice(0, 500));
+        return NextResponse.json({ document, shouldPreview: false, extractionError: "Invalid JSON from AI" });
+      }
 
       return NextResponse.json({ document, extracted, shouldPreview: true });
     } catch (err) {
@@ -133,9 +152,8 @@ Rules:
     }
   }
 
-  if (purpose === "quiz") {
+  if (validPurpose === "quiz") {
     try {
-      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
       const base64 = Buffer.from(new Uint8Array(fileBuffer)).toString("base64");
 
       const courseOutcomes = await prisma.learningOutcome.findMany({
@@ -173,7 +191,7 @@ Rules:
 - outcomeIds must only contain IDs from the provided list; use [] if nothing matches
 - outcomeSummary should be a single sentence describing the skill or concept tested`;
 
-      const response = await client.messages.create({
+      const response = await anthropic.messages.create({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 4096,
         messages: [
@@ -191,8 +209,15 @@ Rules:
       });
 
       const text = response.content[0].type === "text" ? response.content[0].text : "";
-      const clean = text.replace(/```json|```/g, "").trim();
-      const extracted = JSON.parse(clean);
+
+      let extracted: { questions?: unknown[] };
+      try {
+        const clean = text.replace(/```json|```/g, "").trim();
+        extracted = JSON.parse(clean);
+      } catch (parseErr) {
+        console.error("Quiz extraction: JSON parse failed:", parseErr, "\nRaw:", text.slice(0, 500));
+        return NextResponse.json({ document, shouldPreviewQuestions: false });
+      }
 
       return NextResponse.json({ document, extractedQuestions: extracted.questions, shouldPreviewQuestions: true });
     } catch (err) {
@@ -246,18 +271,18 @@ export async function DELETE(
   });
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Legacy rows stored the full public URL; new rows store just the storage path.
-  const storagePath = doc.fileUrl.startsWith("http")
-    ? doc.fileUrl.split("/course-documents/")[1]
-    : doc.fileUrl;
-
-  try {
-    const { error: removeError } = await serviceClient.storage
-      .from("course-documents")
-      .remove([storagePath]);
-    if (removeError) console.error("Storage remove failed:", removeError.message);
-  } catch (err) {
-    console.error("Storage remove threw:", err);
+  const storagePath = normaliseStoragePath(doc.fileUrl);
+  if (storagePath) {
+    try {
+      const { error: removeError } = await serviceClient.storage
+        .from("course-documents")
+        .remove([storagePath]);
+      if (removeError) console.error("Storage remove failed:", removeError.message);
+    } catch (err) {
+      console.error("Storage remove threw:", err);
+    }
+  } else {
+    console.error("Could not derive storage path from fileUrl:", doc.fileUrl);
   }
 
   await prisma.document.delete({ where: { id: documentId } });

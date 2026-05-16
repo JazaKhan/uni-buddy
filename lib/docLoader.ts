@@ -26,7 +26,7 @@ export async function loadDocumentBlocks(
           .from("course-documents")
           .createSignedUrl(doc.fileUrl, 60);
         if (error || !data?.signedUrl) return null;
-        const res = await fetch(data.signedUrl);
+        const res = await fetch(data.signedUrl, { signal: AbortSignal.timeout(10_000) });
         if (!res.ok) return null;
         const buf = await res.arrayBuffer();
         if (buf.byteLength > TWENTY_MB) return null;

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import Anthropic from "@anthropic-ai/sdk";
 import { getPrismaUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { loadDocumentBlocks, DocBlock } from "@/lib/docLoader";
+import { anthropic } from "@/lib/anthropic";
 
 export async function POST(
   req: NextRequest,
@@ -12,13 +12,13 @@ export async function POST(
   const { courseId } = await params;
   const user = await getPrismaUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const allowed = await checkRateLimit(user.id, "ai");
 
+  const allowed = await checkRateLimit(user.id, "ai");
   if (!allowed) {
-  return NextResponse.json(
-    { error: "Too many requests — please wait a moment before trying again." },
-    { status: 429 }
-  );
+    return NextResponse.json(
+      { error: "Too many requests — please wait a moment before trying again." },
+      { status: 429 }
+    );
   }
 
   const course = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
@@ -27,7 +27,7 @@ export async function POST(
   const body = await req.json();
   const topicIds: string[] = (body.topicIds ?? []).filter(Boolean);
   const outcomeIds: string[] = (body.outcomeIds ?? []).filter(Boolean);
-  const count: number = body.count ?? 10;
+  const count: number = Math.min(Math.max(1, Number(body.count) || 10), 40);
 
   // Fetch outcomes: use explicit outcomeIds > topicIds > all course outcomes as fallback
   const outcomes = await (
@@ -39,17 +39,17 @@ export async function POST(
   );
 
   if (outcomes.length === 0) {
-    return NextResponse.json({ error: "No outcomes found for this course. Add learning outcomes before generating questions." }, { status: 500 });
+    return NextResponse.json(
+      { error: "No outcomes found for this course. Add learning outcomes before generating questions." },
+      { status: 400 }
+    );
   }
 
-  type ContentBlock =
-    | { type: "text"; text: string }
-    | DocBlock;
+  type ContentBlock = { type: "text"; text: string } | DocBlock;
 
   const docBlocks = await loadDocumentBlocks(courseId, ["lecture", "outcomes"]);
   const hasNotesDocs = docBlocks.length > 0;
 
-  // Build outcome list with real DB ids explicitly injected into the prompt
   const outcomeList = outcomes
     .map((o) => `- id: "${o.id}" | topicId: "${o.topic.id}" | topic: "${o.topic.name}" | outcome: "${o.name}"`)
     .join("\n");
@@ -108,11 +108,9 @@ Return ONLY a valid JSON object — no markdown fences, no explanation, no text 
 }`;
 
   try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-
     const contentBlocks: ContentBlock[] = [...docBlocks, { type: "text", text: prompt }];
 
-    const response = await client.messages.create({
+    const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 8192,
       messages: [{ role: "user", content: contentBlocks }],
@@ -122,9 +120,9 @@ Return ONLY a valid JSON object — no markdown fences, no explanation, no text 
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("");
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
     let parsed: { questions?: unknown[] };
     try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("No JSON object found in response");
       parsed = JSON.parse(jsonMatch[0]);
     } catch (parseErr) {
@@ -136,7 +134,10 @@ Return ONLY a valid JSON object — no markdown fences, no explanation, no text 
 
     if (questions.length === 0) {
       console.error("Claude returned 0 questions. Full response:", text);
-      return NextResponse.json({ error: "AI generated no questions — try again or check your learning outcomes." }, { status: 500 });
+      return NextResponse.json(
+        { error: "AI generated no questions — try again or check your learning outcomes." },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({

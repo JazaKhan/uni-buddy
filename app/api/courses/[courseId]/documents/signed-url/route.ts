@@ -3,6 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { getPrismaUser } from "@/lib/auth";
 import { serviceClient } from "@/lib/supabase/serviceClient";
 
+function normaliseStoragePath(fileUrl: string): string | null {
+  if (!fileUrl.startsWith("http")) return fileUrl;
+  const parts = fileUrl.split("/course-documents/");
+  return parts.length === 2 ? parts[1] : null;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ courseId: string }> }
@@ -19,9 +25,14 @@ export async function GET(
   });
   if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const storagePath = normaliseStoragePath(doc.fileUrl);
+  if (!storagePath) {
+    return NextResponse.json({ error: "Invalid document path" }, { status: 500 });
+  }
+
   const { data, error } = await serviceClient.storage
     .from("course-documents")
-    .createSignedUrl(doc.fileUrl, 60);
+    .createSignedUrl(storagePath, 60);
 
   if (error || !data?.signedUrl) {
     return NextResponse.json({ error: "Failed to generate signed URL" }, { status: 500 });

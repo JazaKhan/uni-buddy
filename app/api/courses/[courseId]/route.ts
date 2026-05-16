@@ -87,20 +87,26 @@ export async function DELETE(
   const course = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
   if (!course) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const outcomeIds = (await prisma.learningOutcome.findMany({ where: { courseId }, select: { id: true } })).map((o) => o.id);
-  const questionIds = (await prisma.question.findMany({ where: { courseId }, select: { id: true } })).map((q) => q.id);
-  const sessionIds = (await prisma.studySession.findMany({ where: { courseId }, select: { id: true } })).map((s) => s.id);
+  // Pre-fetch IDs needed for targeted deletes, in parallel
+  const [outcomeIds, questionIds, sessionIds] = await Promise.all([
+    prisma.learningOutcome.findMany({ where: { courseId }, select: { id: true } }).then((r) => r.map((o) => o.id)),
+    prisma.question.findMany({ where: { courseId }, select: { id: true } }).then((r) => r.map((q) => q.id)),
+    prisma.studySession.findMany({ where: { courseId }, select: { id: true } }).then((r) => r.map((s) => s.id)),
+  ]);
 
-  await prisma.questionAttempt.deleteMany({ where: { sessionId: { in: sessionIds } } });
-  await prisma.masteryScore.deleteMany({ where: { learningOutcomeId: { in: outcomeIds } } });
-  await prisma.questionOutcome.deleteMany({ where: { questionId: { in: questionIds } } });
-  await prisma.questionTopic.deleteMany({ where: { questionId: { in: questionIds } } });
-  await prisma.question.deleteMany({ where: { courseId } });
-  await prisma.studySession.deleteMany({ where: { courseId } });
-  await prisma.learningOutcome.deleteMany({ where: { courseId } });
-  await prisma.topic.deleteMany({ where: { courseId } });
-  await prisma.document.deleteMany({ where: { courseId } });
-  await prisma.course.delete({ where: { id: courseId } });
+  // All deletes in a single transaction — if any step fails the whole operation rolls back
+  await prisma.$transaction([
+    prisma.questionAttempt.deleteMany({ where: { sessionId: { in: sessionIds } } }),
+    prisma.masteryScore.deleteMany({ where: { learningOutcomeId: { in: outcomeIds } } }),
+    prisma.questionOutcome.deleteMany({ where: { questionId: { in: questionIds } } }),
+    prisma.questionTopic.deleteMany({ where: { questionId: { in: questionIds } } }),
+    prisma.question.deleteMany({ where: { courseId } }),
+    prisma.studySession.deleteMany({ where: { courseId } }),
+    prisma.learningOutcome.deleteMany({ where: { courseId } }),
+    prisma.topic.deleteMany({ where: { courseId } }),
+    prisma.document.deleteMany({ where: { courseId } }),
+    prisma.course.delete({ where: { id: courseId } }),
+  ]);
 
   return NextResponse.json({ success: true });
 }

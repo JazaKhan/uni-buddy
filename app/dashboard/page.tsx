@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
+import BugReportForm from "@/app/components/BugReportForm";
 
 type Course = {
   id: string;
@@ -185,7 +186,6 @@ export default function DashboardPage() {
   const [topicsToFocus, setTopicsToFocus] = useState<PrioritizedTopic[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", message: "" });
 
   const studiedCourses = courses.filter((c) => c.courseMastery > 0);
   const totalCredits = studiedCourses.reduce((sum, c) => sum + c.credits, 0);
@@ -417,39 +417,8 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Contact Form */}
-        <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-4" style={{ backgroundColor: "#FEFEE8" }}>
-          <h2 className="text-base font-bold text-gray-800">Get in Touch</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input
-              type="text"
-              placeholder="Your name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300"
-            />
-            <input
-              type="email"
-              placeholder="Your email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300"
-            />
-          </div>
-          <textarea
-            placeholder="Your message"
-            rows={3}
-            value={form.message}
-            onChange={(e) => setForm({ ...form, message: e.target.value })}
-            className="px-4 py-2 rounded-xl border border-gray-200 text-sm outline-none focus:ring-2 focus:ring-yellow-300 resize-none"
-          />
-          <button
-            className="self-start px-6 py-2 rounded-full text-sm font-bold text-gray-800 hover:opacity-80 transition-opacity"
-            style={{ backgroundColor: "#F5C842" }}
-          >
-            Submit
-          </button>
-        </div>
+        <BugReportForm />
+
       </main>
     </div>
   );

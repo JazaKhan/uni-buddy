@@ -1,24 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getPrismaUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-async function getAuthedUser() {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser?.email) return null;
-  return prisma.user.upsert({
-    where: { email: authUser.email },
-    update: {},
-    create: { email: authUser.email },
-  });
-}
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ courseId: string }> }
 ) {
   const { courseId } = await params;
-  const user = await getAuthedUser();
+  let user;
+  try { user = await getPrismaUser(); } catch { return NextResponse.json({ error: "Server error" }, { status: 500 }); }
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { name } = await req.json();
@@ -39,7 +29,8 @@ export async function DELETE(
   { params }: { params: Promise<{ courseId: string }> }
 ) {
   const { courseId } = await params;
-  const user = await getAuthedUser();
+  let user;
+  try { user = await getPrismaUser(); } catch { return NextResponse.json({ error: "Server error" }, { status: 500 }); }
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { topicId } = await req.json();
@@ -50,15 +41,16 @@ export async function DELETE(
   });
   if (!topic) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Manually cascade: delete join table rows, then outcomes, then topic
   const outcomes = await prisma.learningOutcome.findMany({ where: { topicId } });
   const outcomeIds = outcomes.map((o) => o.id);
 
-  await prisma.masteryScore.deleteMany({ where: { learningOutcomeId: { in: outcomeIds } } });
-  await prisma.questionOutcome.deleteMany({ where: { learningOutcomeId: { in: outcomeIds } } });
-  await prisma.learningOutcome.deleteMany({ where: { topicId } });
-  await prisma.questionTopic.deleteMany({ where: { topicId } });
-  await prisma.topic.delete({ where: { id: topicId } });
+  await prisma.$transaction([
+    prisma.masteryScore.deleteMany({ where: { learningOutcomeId: { in: outcomeIds } } }),
+    prisma.questionOutcome.deleteMany({ where: { learningOutcomeId: { in: outcomeIds } } }),
+    prisma.learningOutcome.deleteMany({ where: { topicId } }),
+    prisma.questionTopic.deleteMany({ where: { topicId } }),
+    prisma.topic.delete({ where: { id: topicId } }),
+  ]);
 
   return NextResponse.json({ success: true });
 }

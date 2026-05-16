@@ -1,47 +1,84 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { getPrismaUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { loadDocumentBlocks } from "@/lib/docLoader";
+import { loadDocumentBlocks, DocBlock } from "@/lib/docLoader";
+import { prisma } from "@/lib/prisma";
+import { anthropic } from "@/lib/anthropic";
 
-const anthropic = new Anthropic();
+const VALID_RESULTS = ["correct", "partial", "incorrect"] as const;
+type GradingResult = (typeof VALID_RESULTS)[number];
 
 export async function POST(req: NextRequest) {
-  const user = await getPrismaUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const allowed = await checkRateLimit(user.id, "ai");
-  if (!allowed) {
-    return NextResponse.json(
-      { error: "Too many requests — please wait a moment before trying again." },
-      { status: 429 }
-    );
+  let user;
+  try {
+    user = await getPrismaUser();
+  } catch {
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
-  let body: { courseId?: string; question?: string; correctAnswer?: string | null; userAnswer?: string; outcomeName?: string };
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  let body: {
+    courseId?: string;
+    question?: string;
+    correctAnswer?: string | null;
+    userAnswer?: string;
+    outcomeName?: string;
+  };
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ result: "incorrect", explanation: "Invalid request.", suggestedMark: false });
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
   const { question, correctAnswer, userAnswer, outcomeName, courseId } = body;
 
-  const docBlocks = courseId
-    ? await loadDocumentBlocks(courseId, ["lecture", "outcomes"], 2)
-    : [];
-
   if (!question || !userAnswer) {
-    return NextResponse.json({ result: "incorrect", explanation: "Missing question or answer.", suggestedMark: false });
+    return NextResponse.json({ error: "Missing question or answer" }, { status: 400 });
+  }
+
+  try {
+    const allowed = await checkRateLimit(user.id, "ai");
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many requests — please wait a moment before trying again." },
+        { status: 429 }
+      );
+    }
+  } catch {
+    // Redis unavailable — fail open rather than blocking the user
+  }
+
+  if (courseId) {
+    let owns;
+    try {
+      owns = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
+    } catch {
+      return NextResponse.json({ error: "Server error" }, { status: 500 });
+    }
+    if (!owns) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  let docBlocks: DocBlock[] = [];
+  try {
+    if (courseId) {
+      docBlocks = await loadDocumentBlocks(courseId, ["lecture", "outcomes"], 2);
+    }
+  } catch {
+    // Degrade gracefully — grade without course materials
   }
 
   const prompt = `You are a fair and encouraging university study coach grading a student's answer.
-${docBlocks.length > 0
+${
+  docBlocks.length > 0
     ? "Course materials are provided above. Grade based ONLY on what is taught in these specific materials — reference the actual content, examples, and terminology from the notes."
-    : "No course materials available — grade based on general correctness."}
+    : "No course materials available — grade based on general correctness."
+}
 
-Question: ${question}
-Learning outcome: ${outcomeName || "Not specified"}
-${correctAnswer ? `Model answer: ${correctAnswer}` : "No model answer — grade on whether the answer is reasonable."}
-Student's answer: ${userAnswer}
+<question>${question}</question>
+<learning_outcome>${outcomeName || "Not specified"}</learning_outcome>
+${correctAnswer ? `<model_answer>${correctAnswer}</model_answer>` : "No model answer — grade on whether the answer is reasonable."}
+<student_answer>${userAnswer}</student_answer>
 
 Grading rules:
 - If the student's answer conveys the same meaning as the model answer, even in different words → "correct"
@@ -80,16 +117,23 @@ suggestedMark: true for correct or partial, false for incorrect only.`;
     if (!jsonMatch) throw new Error("No JSON object found in response");
     const parsed = JSON.parse(jsonMatch[0]);
 
+    const result: GradingResult = (VALID_RESULTS as readonly string[]).includes(parsed.result)
+      ? parsed.result
+      : "incorrect";
+
     return NextResponse.json({
-      result: parsed.result as "correct" | "partial" | "incorrect",
+      result,
       explanation: String(parsed.explanation),
       suggestedMark: Boolean(parsed.suggestedMark),
     });
   } catch {
-    return NextResponse.json({
-      result: "incorrect",
-      explanation: "Could not check answer — please mark manually.",
-      suggestedMark: false,
-    });
+    return NextResponse.json(
+      {
+        result: "incorrect",
+        explanation: "Could not check answer — please mark manually.",
+        suggestedMark: false,
+      },
+      { status: 500 }
+    );
   }
 }
