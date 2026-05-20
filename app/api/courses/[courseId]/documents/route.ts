@@ -58,8 +58,8 @@ export async function POST(
   }
   const validPurpose = purpose as DocumentPurpose;
 
-  if (file.size > 50 * 1024 * 1024) {
-    return NextResponse.json({ error: "File too large — maximum size is 50 MB" }, { status: 413 });
+  if (file.size > 25 * 1024 * 1024) {
+    return NextResponse.json({ error: "File too large — maximum size is 25 MB" }, { status: 413 });
   }
 
   const fileBuffer = await file.arrayBuffer();
