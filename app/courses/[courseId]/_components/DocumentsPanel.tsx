@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
 import type { DocumentItem, ExtractedQuestion, Outcome } from "./types";
 
 type PreviewTopic = { name: string; selected: boolean; outcomes: { name: string; selected: boolean }[] };
@@ -32,21 +33,63 @@ export default function DocumentsPanel({
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !uploadPurpose) return;
+
+    if (file.size > 25 * 1024 * 1024) {
+      setError("File too large — maximum size is 25 MB.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const magic = new Uint8Array(await file.slice(0, 5).arrayBuffer());
+    const isPdf = magic[0] === 0x25 && magic[1] === 0x50 && magic[2] === 0x44 && magic[3] === 0x46 && magic[4] === 0x2D;
+    if (!isPdf) {
+      setError("Only PDF files are accepted.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setUploading(true);
     setError(null);
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("purpose", uploadPurpose);
+    // Step 1: Get a signed upload URL from the server (tiny JSON request — no file body)
+    const urlRes = await fetch(`/api/courses/${courseId}/documents/upload-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileName: file.name, purpose: uploadPurpose }),
+    });
 
+    if (!urlRes.ok) {
+      setUploading(false);
+      setError("Upload failed — please try again.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const { filePath, token } = await urlRes.json();
+
+    // Step 2: Upload directly from browser to Supabase (bypasses Vercel's 4.5MB limit)
+    const supabase = createClient();
+    const { error: uploadError } = await supabase.storage
+      .from("course-documents")
+      .uploadToSignedUrl(filePath, token, file, { contentType: "application/pdf", upsert: false });
+
+    if (uploadError) {
+      setUploading(false);
+      setError("Upload failed — please try again.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    // Step 3: Notify server to create the DB record and run AI extraction
     const res = await fetch(`/api/courses/${courseId}/documents`, {
       method: "POST",
-      body: formData,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filePath, fileName: file.name, purpose: uploadPurpose }),
     });
 
     if (!res.ok) {
       setUploading(false);
-      setError("Upload failed — please try again.");
+      setError("Processing failed — please try again.");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }

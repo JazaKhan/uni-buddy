@@ -43,12 +43,16 @@ export async function POST(
   const course = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
   if (!course) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const formData = await req.formData();
-  const file = formData.get("file") as File;
-  const purpose = formData.get("purpose") as string;
+  const { filePath, fileName, purpose } = await req.json();
 
-  if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
+  if (!filePath) return NextResponse.json({ error: "No filePath" }, { status: 400 });
+  if (!fileName) return NextResponse.json({ error: "No fileName" }, { status: 400 });
   if (!purpose) return NextResponse.json({ error: "No purpose" }, { status: 400 });
+
+  // Ensure the path belongs to this course — prevents pointing at another user's files
+  if (!filePath.startsWith(`${courseId}/`)) {
+    return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
+  }
 
   if (!(VALID_PURPOSES as readonly string[]).includes(purpose)) {
     return NextResponse.json(
@@ -58,32 +62,10 @@ export async function POST(
   }
   const validPurpose = purpose as DocumentPurpose;
 
-  if (file.size > 25 * 1024 * 1024) {
-    return NextResponse.json({ error: "File too large — maximum size is 25 MB" }, { status: 413 });
-  }
-
-  const fileBuffer = await file.arrayBuffer();
-
-  const magic = new Uint8Array(fileBuffer, 0, 5);
-  const isPdf = magic[0] === 0x25 && magic[1] === 0x50 && magic[2] === 0x44 && magic[3] === 0x46 && magic[4] === 0x2D;
-  if (!isPdf) {
-    return NextResponse.json({ error: "Only PDF files are accepted" }, { status: 415 });
-  }
-
-  const fileName = `${courseId}/${Date.now()}-${file.name}`;
-
-  const { error: uploadError } = await serviceClient.storage
-    .from("course-documents")
-    .upload(fileName, fileBuffer, { contentType: "application/pdf" });
-
-  if (uploadError) {
-    return NextResponse.json({ error: "Upload failed", detail: uploadError.message }, { status: 500 });
-  }
-
   const document = await prisma.document.create({
     data: {
-      name: file.name,
-      fileUrl: fileName,
+      name: fileName,
+      fileUrl: filePath,
       fileType: "application/pdf",
       purpose: validPurpose,
       courseId,
@@ -92,6 +74,16 @@ export async function POST(
 
   if (validPurpose === "outcomes") {
     try {
+      const { data: blob, error: downloadError } = await serviceClient.storage
+        .from("course-documents")
+        .download(filePath);
+
+      if (downloadError || !blob) {
+        console.error("Outcomes: download failed:", downloadError);
+        return NextResponse.json({ document, shouldPreview: false, extractionError: "Download failed" });
+      }
+
+      const fileBuffer = await blob.arrayBuffer();
       const base64 = Buffer.from(new Uint8Array(fileBuffer)).toString("base64");
 
       const prompt = `You are analyzing a university course document. Extract the learning outcomes and topics from this document.
@@ -154,6 +146,16 @@ Rules:
 
   if (validPurpose === "quiz") {
     try {
+      const { data: blob, error: downloadError } = await serviceClient.storage
+        .from("course-documents")
+        .download(filePath);
+
+      if (downloadError || !blob) {
+        console.error("Quiz: download failed:", downloadError);
+        return NextResponse.json({ document, shouldPreviewQuestions: false });
+      }
+
+      const fileBuffer = await blob.arrayBuffer();
       const base64 = Buffer.from(new Uint8Array(fileBuffer)).toString("base64");
 
       const courseOutcomes = await prisma.learningOutcome.findMany({
@@ -223,6 +225,80 @@ Rules:
     } catch (err) {
       console.error("Quiz extraction error:", err);
       return NextResponse.json({ document, shouldPreviewQuestions: false });
+    }
+  }
+
+  if (validPurpose === "lecture") {
+    try {
+      const { data: blob, error: downloadError } = await serviceClient.storage
+        .from("course-documents")
+        .download(filePath);
+
+      if (downloadError || !blob) {
+        console.error("Lecture LO extraction: download failed:", downloadError);
+        return NextResponse.json({ document, shouldPreview: false });
+      }
+
+      const fileBuffer = await blob.arrayBuffer();
+      const base64 = Buffer.from(new Uint8Array(fileBuffer)).toString("base64");
+
+      const prompt = `You are analyzing a university lecture document. Your task is narrow: look ONLY for an explicit section that lists learning outcomes or objectives (e.g. a section titled "Learning Outcomes", "Learning Objectives", "Course Objectives", "By the end of this lecture you will…", or similar).
+
+If such a section exists, extract ONLY what is written there — do not infer or derive outcomes from the lecture content itself.
+
+If no such section exists, return an empty topics array.
+
+Return ONLY a valid JSON object in this exact format, no other text:
+{
+  "topics": [
+    {
+      "name": "Topic name",
+      "outcomes": [
+        "Learning outcome 1",
+        "Learning outcome 2"
+      ]
+    }
+  ]
+}
+
+Rules:
+- Only populate this if you find an explicit outcomes/objectives section in the document
+- If no such section exists, return { "topics": [] }
+- Group outcomes under their relevant topic; use a single topic named after the lecture subject if no grouping is present
+- Maximum 10 topics, maximum 8 outcomes per topic`;
+
+      const response = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 2048,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "document",
+                source: { type: "base64", media_type: "application/pdf", data: base64 },
+              },
+              { type: "text", text: prompt },
+            ],
+          },
+        ],
+      });
+
+      const text = response.content[0].type === "text" ? response.content[0].text : "";
+
+      try {
+        const clean = text.replace(/```json|```/g, "").trim();
+        const extracted = JSON.parse(clean) as { topics?: Array<{ name: string; outcomes: string[] }> };
+        const topics = extracted.topics ?? [];
+
+        if (topics.length > 0) {
+          return NextResponse.json({ document, extracted, shouldPreview: true });
+        }
+      } catch (parseErr) {
+        console.error("Lecture LO extraction: JSON parse failed:", parseErr, "\nRaw:", text.slice(0, 500));
+      }
+    } catch (err) {
+      console.error("Lecture LO extraction error:", err);
     }
   }
 
