@@ -71,6 +71,18 @@ export default function LoginPage() {
             Sign Up
           </button>
         </p>
+
+        <div className="border-t border-gray-200 pt-4 flex flex-col items-center gap-2">
+          <p className="text-xs text-gray-400">Just exploring?</p>
+          <button
+            type="button"
+            onClick={() => { setEmail('demo@uni-buddy.com'); setPassword('demo1234'); }}
+            className="w-full py-2 rounded-full text-sm font-semibold text-gray-600 border border-gray-300 hover:border-gray-400 hover:text-gray-800 transition-colors"
+            style={{ backgroundColor: 'transparent' }}
+          >
+            Try Demo
+          </button>
+        </div>
       </div>
     </div>
   );
