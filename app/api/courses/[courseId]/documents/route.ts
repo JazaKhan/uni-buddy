@@ -107,6 +107,7 @@ Rules:
 - Name each topic after the actual subject matter it covers — e.g. "Requirements Engineering", "User Stories", "Software Process Models" — NOT structural labels like "Course Learning Objectives", "Lecture Outcomes", or "Module 1"
 - Infer the topic name from slide headings, section titles, or the dominant subject of a group of slides/pages
 - Each topic must represent a coherent subject area, not a document section or administrative grouping
+- When multiple closely related subtopics cluster naturally under a broader theme, group them under that theme rather than listing each separately (e.g. prefer "Software Testing Techniques" over separate "Black Box Testing" and "Boundary Value Analysis" topics)
 - Each outcome must be specific and testable: a concrete statement of what a student should be able to do or know after studying that topic
 - Ignore administrative content: quiz mechanics, grading policies, break slides, project deadlines, housekeeping announcements
 - If outcomes from different pages clearly belong to the same subject area, merge them under one topic
@@ -271,6 +272,7 @@ Rules:
 - Name each topic after the actual subject matter it covers — e.g. "Requirements Engineering", "User Stories", "Agile Methods" — NOT structural labels like "Lecture Outcomes", "Learning Objectives", or "Week 3"
 - Infer the topic name from the lecture title, slide headings, or the dominant subject of the section where the outcomes appear
 - Each topic must represent a coherent subject area, not a document section or structural label
+- When multiple closely related subtopics cluster naturally under a broader theme, group them under that theme rather than listing each separately
 - Each outcome must be specific and testable: a concrete statement of what a student should be able to do or know
 - Ignore administrative content: quiz mechanics, grading policies, break slides, project deadlines
 - Maximum 10 topics, maximum 8 outcomes per topic`;
@@ -369,9 +371,14 @@ export async function DELETE(
     console.error("Could not derive storage path from fileUrl:", doc.fileUrl);
   }
 
-  await prisma.topic.deleteMany({ where: { documentId } });
-
-  await prisma.document.delete({ where: { id: documentId } });
+  try {
+    await prisma.topic.deleteMany({ where: { documentId } });
+    await prisma.question.deleteMany({ where: { documentId, courseId } });
+    await prisma.document.delete({ where: { id: documentId } });
+  } catch (err) {
+    console.error("Document delete DB error:", err);
+    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
+  }
 
   return NextResponse.json({ success: true });
 }

@@ -8,11 +8,15 @@ function OutcomeRow({
   editingOutcomes,
   onDelete,
   isDeleting,
+  otherTopics,
+  onMove,
 }: {
   outcome: Outcome;
   editingOutcomes: boolean;
   onDelete: () => void;
   isDeleting: boolean;
+  otherTopics: { id: string; name: string }[];
+  onMove: (targetTopicId: string) => void;
 }) {
   return (
     <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-[#f5f3e0] transition-colors">
@@ -30,6 +34,19 @@ function OutcomeRow({
           }}
         />
       </div>
+      {editingOutcomes && otherTopics.length > 0 && (
+        <select
+          className="text-xs rounded-lg px-1 py-0.5 bg-white text-gray-600 shrink-0 outline-none focus:ring-2 focus:ring-yellow-300"
+          style={{ border: "1px solid #d6d0a8" }}
+          value=""
+          onChange={(e) => { if (e.target.value) onMove(e.target.value); }}
+        >
+          <option value="" disabled>Move…</option>
+          {otherTopics.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+      )}
       {editingOutcomes && (
         <button
           onClick={onDelete}
@@ -54,6 +71,9 @@ function TopicAccordionCard({
   onDeleteTopic,
   onDeleteOutcome,
   deletingId,
+  onRenameTopic,
+  allTopics,
+  onMoveOutcome,
 }: {
   topic: TopicWithOutcomes;
   index: number;
@@ -64,15 +84,34 @@ function TopicAccordionCard({
   onDeleteTopic: () => void;
   onDeleteOutcome: (outcomeId: string) => void;
   deletingId: string | null;
+  onRenameTopic: (name: string) => Promise<void>;
+  allTopics: TopicWithOutcomes[];
+  onMoveOutcome: (outcomeId: string, targetTopicId: string) => void;
 }) {
   const [addingOutcome, setAddingOutcome] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(topic.name);
+  const [renameSaving, setRenameSaving] = useState(false);
+  const isCancelledRef = useRef(false);
+
   const inputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (addingOutcome) inputRef.current?.focus();
   }, [addingOutcome]);
+
+  useEffect(() => {
+    if (renaming) renameInputRef.current?.focus();
+  }, [renaming]);
+
+  // Sync rename draft when parent reverts optimistic update
+  useEffect(() => {
+    if (!renaming) setRenameValue(topic.name);
+  }, [topic.name, renaming]);
 
   function openForm(e: React.MouseEvent) {
     e.stopPropagation();
@@ -93,21 +132,77 @@ function TopicAccordionCard({
     cancelForm();
   }
 
+  function startRename(e: React.MouseEvent) {
+    e.stopPropagation();
+    isCancelledRef.current = false;
+    setRenaming(true);
+  }
+
+  function cancelRename() {
+    isCancelledRef.current = true;
+    setRenaming(false);
+    setRenameValue(topic.name);
+  }
+
+  async function commitRename() {
+    if (isCancelledRef.current) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === topic.name) {
+      setRenaming(false);
+      setRenameValue(topic.name);
+      return;
+    }
+    setRenameSaving(true);
+    await onRenameTopic(trimmed);
+    setRenameSaving(false);
+    setRenaming(false);
+  }
+
   const colors = ["#D6EEF8", "#D6F8E8", "#F8F0D6", "#F8D6D6", "#EDD6F8"];
   const bg = colors[index % colors.length];
+  const otherTopics = allTopics.filter((t) => t.id !== topic.id);
 
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid #e5e3d0" }}>
       <div
-        className="flex items-center justify-between px-5 py-3 cursor-pointer select-none"
+        className={`flex items-center justify-between px-5 py-3 select-none${renaming ? "" : " cursor-pointer"}`}
         style={{ backgroundColor: bg }}
-        onClick={onToggle}
+        onClick={renaming ? undefined : onToggle}
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-sm font-bold text-gray-800 truncate">{topic.name}</span>
-          <span className="text-xs text-gray-500 shrink-0">
-            {topic.outcomes.length} outcome{topic.outcomes.length !== 1 ? "s" : ""}
-          </span>
+          {renaming ? (
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); renameInputRef.current?.blur(); }
+                if (e.key === "Escape") { e.preventDefault(); cancelRename(); renameInputRef.current?.blur(); }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              disabled={renameSaving}
+              className="text-sm font-bold text-gray-800 bg-white rounded-lg px-2 py-0.5 outline-none focus:ring-2 focus:ring-yellow-300 min-w-0 flex-1 disabled:opacity-60"
+              style={{ border: "1px solid #d6d0a8" }}
+            />
+          ) : (
+            <span
+              className={`text-sm font-bold text-gray-800 truncate${editingOutcomes ? " cursor-text underline decoration-dashed underline-offset-2" : ""}`}
+              onClick={editingOutcomes ? startRename : undefined}
+              title={editingOutcomes ? "Click to rename" : undefined}
+            >
+              {topic.name}
+            </span>
+          )}
+          {renameSaving && (
+            <span className="text-xs text-gray-400 shrink-0">Saving…</span>
+          )}
+          {!renaming && !renameSaving && (
+            <span className="text-xs text-gray-500 shrink-0">
+              {topic.outcomes.length} outcome{topic.outcomes.length !== 1 ? "s" : ""}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {editingOutcomes && (
@@ -142,6 +237,8 @@ function TopicAccordionCard({
               editingOutcomes={editingOutcomes}
               onDelete={() => onDeleteOutcome(outcome.id)}
               isDeleting={deletingId === outcome.id}
+              otherTopics={otherTopics}
+              onMove={(targetTopicId) => onMoveOutcome(outcome.id, targetTopicId)}
             />
           ))}
           {addingOutcome && (
@@ -191,6 +288,7 @@ export default function OutcomesPanel({
   topics: TopicWithOutcomes[];
   onRefresh: () => Promise<void>;
 }) {
+  const [localTopics, setLocalTopics] = useState<TopicWithOutcomes[]>(topics);
   const [openTopics, setOpenTopics] = useState<Set<string>>(
     () => new Set(topics.length > 0 ? [topics[0].id] : [])
   );
@@ -206,7 +304,10 @@ export default function OutcomesPanel({
     if (addingTopic) topicInputRef.current?.focus();
   }, [addingTopic]);
 
-  // Keep openTopics in sync when topics list changes (e.g. on initial load)
+  // Sync local state when the parent refreshes server data
+  useEffect(() => { setLocalTopics(topics); }, [topics]);
+
+  // Open the first topic on initial load
   useEffect(() => {
     setOpenTopics((prev) => {
       if (prev.size > 0) return prev;
@@ -263,7 +364,52 @@ export default function OutcomesPanel({
     await onRefresh();
   }
 
-  const allOutcomes = topics.flatMap((t) => t.outcomes);
+  async function handleRenameTopic(topicId: string, name: string) {
+    const prevTopics = localTopics;
+    setLocalTopics((ts) => ts.map((t) => (t.id === topicId ? { ...t, name } : t)));
+    const res = await fetch(`/api/courses/${courseId}/topics/${topicId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      setLocalTopics(prevTopics);
+      setError("Failed to rename topic — please try again.");
+    }
+  }
+
+  async function handleMoveOutcome(outcomeId: string, targetTopicId: string) {
+    const prevTopics = localTopics;
+    let movedOutcome: Outcome | null = null;
+    for (const t of prevTopics) {
+      const found = t.outcomes.find((o) => o.id === outcomeId);
+      if (found) { movedOutcome = found; break; }
+    }
+    if (!movedOutcome) return;
+    const captured = movedOutcome;
+    setLocalTopics((ts) =>
+      ts.map((t) => {
+        if (t.outcomes.some((o) => o.id === outcomeId)) {
+          return { ...t, outcomes: t.outcomes.filter((o) => o.id !== outcomeId) };
+        }
+        if (t.id === targetTopicId) {
+          return { ...t, outcomes: [...t.outcomes, captured] };
+        }
+        return t;
+      })
+    );
+    const res = await fetch(`/api/courses/${courseId}/outcomes/${outcomeId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topicId: targetTopicId }),
+    });
+    if (!res.ok) {
+      setLocalTopics(prevTopics);
+      setError("Failed to move outcome — please try again.");
+    }
+  }
+
+  const allOutcomes = localTopics.flatMap((t) => t.outcomes);
 
   return (
     <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-4" style={{ backgroundColor: "#FEFEE8" }}>
@@ -272,8 +418,8 @@ export default function OutcomesPanel({
           <h2 className="text-sm font-bold text-gray-800">Learning Outcomes</h2>
           <p className="text-xs text-gray-500">
             {allOutcomes.length} outcome{allOutcomes.length !== 1 ? "s" : ""}
-            {topics.length > 0
-              ? ` across ${topics.length} topic${topics.length !== 1 ? "s" : ""}`
+            {localTopics.length > 0
+              ? ` across ${localTopics.length} topic${localTopics.length !== 1 ? "s" : ""}`
               : ""}
           </p>
           <button
@@ -336,9 +482,9 @@ export default function OutcomesPanel({
         </div>
       )}
 
-      {topics.length > 0 && (
+      {localTopics.length > 0 && (
         <div className="flex flex-col gap-3">
-          {topics.map((topic, idx) => (
+          {localTopics.map((topic, idx) => (
             <TopicAccordionCard
               key={topic.id}
               topic={topic}
@@ -350,12 +496,15 @@ export default function OutcomesPanel({
               onDeleteTopic={() => handleDeleteTopic(topic.id)}
               onDeleteOutcome={handleDeleteOutcome}
               deletingId={deletingId}
+              onRenameTopic={(name) => handleRenameTopic(topic.id, name)}
+              allTopics={localTopics}
+              onMoveOutcome={handleMoveOutcome}
             />
           ))}
         </div>
       )}
 
-      {topics.length === 0 && allOutcomes.length === 0 && (
+      {localTopics.length === 0 && allOutcomes.length === 0 && (
         <p className="text-xs text-gray-400 text-center py-4">
           No outcomes yet — add a topic to get started.
         </p>

@@ -13,7 +13,7 @@ export async function POST(
   const course = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
   if (!course) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const { questions } = await req.json();
+  const { questions, documentId } = await req.json();
   if (!Array.isArray(questions) || questions.length === 0) {
     return NextResponse.json({ count: 0 });
   }
@@ -36,6 +36,7 @@ export async function POST(
           content: q.content,
           answer: q.answer ?? null,
           courseId,
+          ...(documentId ? { documentId } : {}),
           questionOutcomes: {
             create: validOutcomeIds.map((id) => ({ learningOutcomeId: id })),
           },

@@ -82,8 +82,10 @@ model Question {
   blanks        Json?
   isAiGenerated Boolean      @default(false)
 
-  courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId   String
+  documentId String?
+  course     Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
 
   questionOutcomes QuestionOutcome[]
   questionTopics   QuestionTopic[]
@@ -164,6 +166,7 @@ model Document {
   createdAt DateTime @default(now())
 
   courseId String
-  course   Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course   Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
   topics   Topic[]
+  questions Question[]
 }

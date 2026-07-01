@@ -19,8 +19,10 @@ export default function DocumentsPanel({
   const [previewData, setPreviewData] = useState<{ documentId: string; topics: PreviewTopic[] } | null>(null);
   const [confirmingSave, setConfirmingSave] = useState(false);
   const [questionPreviewData, setQuestionPreviewData] = useState<ExtractedQuestion[] | null>(null);
+  const [questionPreviewDocId, setQuestionPreviewDocId] = useState<string | null>(null);
   const [confirmingQuestions, setConfirmingQuestions] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [limitWarningDocId, setLimitWarningDocId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -114,6 +116,7 @@ export default function DocumentsPanel({
         })),
       });
     } else if (data.shouldPreviewQuestions && data.extractedQuestions) {
+      setQuestionPreviewDocId(data.document.id);
       setQuestionPreviewData(
         data.extractedQuestions.map((q) => ({
           ...q,
@@ -129,6 +132,11 @@ export default function DocumentsPanel({
   }
 
   async function handleToggleActive(documentId: string, isActive: boolean) {
+    if (isActive && documents.filter((d) => d.isActive && d.purpose === "lecture").length >= 2) {
+      setLimitWarningDocId(documentId);
+      setTimeout(() => setLimitWarningDocId(null), 2500);
+      return;
+    }
     setDocuments((prev) => prev.map((d) => d.id === documentId ? { ...d, isActive } : d));
     const res = await fetch(`/api/courses/${courseId}/documents`, {
       method: "PATCH",
@@ -186,11 +194,13 @@ export default function DocumentsPanel({
           answer: q.answer,
           outcomeIds: q.outcomeIds,
         })),
+        documentId: questionPreviewDocId,
       }),
     });
     setConfirmingQuestions(false);
     if (!res.ok) { setError("Failed to save questions — please try again."); return; }
     setQuestionPreviewData(null);
+    setQuestionPreviewDocId(null);
   }
 
   const outcomeMap = new Map(allOutcomes.map((o) => [o.id, o.name]));
@@ -200,7 +210,7 @@ export default function DocumentsPanel({
       {/* Uploaded Documents */}
       <div className="p-6 rounded-3xl shadow-lg flex flex-col gap-3" style={{ backgroundColor: "#FEFEE8" }}>
         <h2 className="text-sm font-bold text-gray-800">Uploaded Documents</h2>
-        <p className="text-xs text-gray-500">Files uploaded for this course</p>
+        <p className="text-xs text-gray-500">Enable up to 2 documents at a time — AI uses these as context for question generation.</p>
         {error && (
           <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-xl">{error}</p>
         )}
@@ -209,41 +219,46 @@ export default function DocumentsPanel({
         ) : (
           <div className="flex flex-col gap-2">
             {documents.map((doc) => (
-              <div key={doc.id} className="flex items-center justify-between p-3 rounded-2xl bg-gray-50 border border-gray-100">
-                <div className="flex-1 min-w-0 mr-2">
-                  <button
-                    onClick={() => handleOpenDocument(doc.id)}
-                    className="text-xs font-semibold text-gray-700 hover:underline truncate block text-left"
-                  >
-                    {doc.name}
-                  </button>
-                  <p className="text-xs text-gray-400">
-                    {new Date(doc.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </p>
+              <div key={doc.id} className="flex flex-col gap-0.5">
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-gray-50 border border-gray-100">
+                  <div className="flex-1 min-w-0 mr-2">
+                    <button
+                      onClick={() => handleOpenDocument(doc.id)}
+                      className="text-xs font-semibold text-gray-700 hover:underline truncate block text-left"
+                    >
+                      {doc.name}
+                    </button>
+                    <p className="text-xs text-gray-400">
+                      {new Date(doc.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => handleToggleActive(doc.id, !doc.isActive)}
+                      title={doc.isActive ? "Used by AI — click to disable" : "Disabled — click to enable"}
+                      className="relative w-8 h-4 rounded-full transition-colors shrink-0 focus:outline-none"
+                      style={{ backgroundColor: doc.isActive ? "#5CB85C" : "#d1d5db" }}
+                    >
+                      <span
+                        className="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                        style={{ left: doc.isActive ? "17px" : "2px" }}
+                      />
+                    </button>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "#D6EEF8", color: "#374151" }}>
+                      {doc.purpose}
+                    </span>
+                    <button
+                      onClick={() => handleDeleteDocument(doc.id)}
+                      className="text-xs text-red-400 hover:text-red-600 transition-colors px-1"
+                      title="Delete"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => handleToggleActive(doc.id, !doc.isActive)}
-                    title={doc.isActive ? "Used by AI — click to disable" : "Disabled — click to enable"}
-                    className="relative w-8 h-4 rounded-full transition-colors shrink-0 focus:outline-none"
-                    style={{ backgroundColor: doc.isActive ? "#5CB85C" : "#d1d5db" }}
-                  >
-                    <span
-                      className="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
-                      style={{ left: doc.isActive ? "17px" : "2px" }}
-                    />
-                  </button>
-                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "#D6EEF8", color: "#374151" }}>
-                    {doc.purpose}
-                  </span>
-                  <button
-                    onClick={() => handleDeleteDocument(doc.id)}
-                    className="text-xs text-red-400 hover:text-red-600 transition-colors px-1"
-                    title="Delete"
-                  >
-                    ✕
-                  </button>
-                </div>
+                {limitWarningDocId === doc.id && (
+                  <p className="text-xs text-red-500 px-3">Disable another document first</p>
+                )}
               </div>
             ))}
           </div>
@@ -314,11 +329,11 @@ export default function DocumentsPanel({
                 </p>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-6 flex flex-col gap-3 pb-2">
+              <div className="flex-1 min-h-0 overflow-y-auto px-6 flex flex-col gap-4 pb-4">
                 {questionPreviewData.map((q, qi) => (
-                  <div key={qi} className="rounded-2xl overflow-y-auto" style={{ border: "1px solid #e5e3d0" }}>
+                  <div key={qi} className="rounded-2xl shrink-0 text-gray-800" style={{ border: "1px solid #e5e3d0" }}>
                     <div
-                      className="flex items-start gap-3 px-4 py-3 cursor-pointer"
+                      className="flex items-start gap-3 px-4 py-3 cursor-pointer text-gray-800"
                       style={{ backgroundColor: q.selected ? "#F5C842" : "#ede9cc" }}
                       onClick={() => setQuestionPreviewData((prev) => {
                         if (!prev) return prev;
@@ -404,14 +419,14 @@ export default function DocumentsPanel({
       {previewData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
           <div className="w-full max-w-lg rounded-3xl shadow-xl flex flex-col gap-4 h-[85vh]" style={{ backgroundColor: "#FEFEE8" }}>
-            <div className="p-6 pb-0">
+            <div className="p-6 pb-0 shrink-0">
               <h2 className="text-sm font-bold text-gray-800">AI Extracted Learning Outcomes</h2>
               <p className="text-xs text-gray-500 mt-1">Review and deselect anything you don't want to add. Then confirm.</p>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 flex flex-col gap-3">
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 flex flex-col gap-4 pb-2">
               {previewData.topics.map((topic, ti) => (
-                <div key={ti} className="rounded-2xl overflow-y-auto" style={{ border: "1px solid #e5e3d0" }}>
+                <div key={ti} className="rounded-2xl shrink-0" style={{ border: "1px solid #e5e3d0" }}>
                   <div
                     className="flex items-center gap-2 px-4 py-2.5 cursor-pointer"
                     style={{ backgroundColor: "#ede9cc" }}

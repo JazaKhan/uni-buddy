@@ -10,7 +10,10 @@ export async function POST(
   { params }: { params: Promise<{ courseId: string }> }
 ) {
   const { courseId } = await params;
+  console.error("GEN 1: route hit, courseId:", courseId);
+
   const user = await getPrismaUser();
+  console.error("GEN 2: user:", user?.id);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const allowed = await checkRateLimit(user.id, "ai");
@@ -38,6 +41,8 @@ export async function POST(
       : prisma.learningOutcome.findMany({ where: { courseId }, include: { topic: true } })
   );
 
+  console.error("GEN 3: outcomes count:", outcomes.length, "topicIds:", topicIds, "outcomeIds:", outcomeIds);
+
   if (outcomes.length === 0) {
     return NextResponse.json(
       { error: "No outcomes found for this course. Add learning outcomes before generating questions." },
@@ -47,7 +52,8 @@ export async function POST(
 
   type ContentBlock = { type: "text"; text: string } | DocBlock;
 
-  const docBlocks = await loadDocumentBlocks(courseId, ["lecture", "outcomes"]);
+  const docBlocks = await loadDocumentBlocks(courseId, ["lecture", "outcomes"], 2);
+  console.error("GEN 4: docBlocks count:", docBlocks.length);
   const hasNotesDocs = docBlocks.length > 0;
 
   const outcomeList = outcomes
@@ -145,7 +151,7 @@ Return ONLY a valid JSON object — no markdown fences, no explanation, no text 
       ...(hasNotesDocs ? {} : { warning: "no_notes" }),
     });
   } catch (err) {
-    console.error("AI question generation error:", err);
+    console.error("GEN 5: Claude error:", err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
