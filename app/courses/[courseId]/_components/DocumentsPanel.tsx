@@ -16,7 +16,7 @@ export default function DocumentsPanel({
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadPurpose, setUploadPurpose] = useState("");
-  const [previewData, setPreviewData] = useState<{ topics: PreviewTopic[] } | null>(null);
+  const [previewData, setPreviewData] = useState<{ documentId: string; topics: PreviewTopic[] } | null>(null);
   const [confirmingSave, setConfirmingSave] = useState(false);
   const [questionPreviewData, setQuestionPreviewData] = useState<ExtractedQuestion[] | null>(null);
   const [confirmingQuestions, setConfirmingQuestions] = useState(false);
@@ -106,6 +106,7 @@ export default function DocumentsPanel({
 
     if (data.shouldPreview && data.extracted) {
       setPreviewData({
+        documentId: data.document.id,
         topics: data.extracted.topics.map((t) => ({
           name: t.name,
           selected: true,
@@ -163,7 +164,7 @@ export default function DocumentsPanel({
     const res = await fetch(`/api/courses/${courseId}/documents/confirm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topics: previewData.topics }),
+      body: JSON.stringify({ topics: previewData.topics, documentId: previewData.documentId }),
     });
     setConfirmingSave(false);
     if (!res.ok) { setError("Failed to save outcomes — please try again."); return; }

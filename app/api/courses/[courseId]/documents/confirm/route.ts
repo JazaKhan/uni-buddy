@@ -13,7 +13,7 @@ export async function POST(
   const course = await prisma.course.findFirst({ where: { id: courseId, userId: user.id } });
   if (!course) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const { topics } = await req.json();
+  const { topics, documentId } = await req.json();
 
   for (const topic of topics) {
     if (!topic.name?.trim() || !topic.selected) continue;
@@ -24,7 +24,11 @@ export async function POST(
 
     if (!existingTopic) {
       existingTopic = await prisma.topic.create({
-        data: { name: topic.name.trim(), courseId },
+        data: {
+          name: topic.name.trim(),
+          courseId,
+          ...(documentId ? { documentId } : {}),
+        },
       });
     }
 

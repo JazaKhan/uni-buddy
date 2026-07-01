@@ -44,8 +44,10 @@ model Topic {
   id   String @id @default(cuid())
   name String
 
-  courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId   String
+  documentId String?
+  course     Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
 
   learningOutcomes LearningOutcome[]
   questionTopics   QuestionTopic[]
@@ -162,5 +164,6 @@ model Document {
   createdAt DateTime @default(now())
 
   courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course   Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  topics   Topic[]
 }

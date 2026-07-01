@@ -86,7 +86,7 @@ export async function POST(
       const fileBuffer = await blob.arrayBuffer();
       const base64 = Buffer.from(new Uint8Array(fileBuffer)).toString("base64");
 
-      const prompt = `You are analyzing a university course document. Extract the learning outcomes and topics from this document.
+      const prompt = `You are analyzing a university course document. Extract the learning outcomes and group them by their actual subject topic or unit.
 
 Extract ONLY what is explicitly stated in this document — do not infer, add context, or use outside knowledge.
 
@@ -104,9 +104,13 @@ Return ONLY a valid JSON object in this exact format, no other text:
 }
 
 Rules:
-- Group outcomes under their relevant topic
-- Each outcome should be a clear, concise statement of what a student should know or be able to do — copied or closely paraphrased from the document
-- If no clear topics exist, use a single topic named after the document subject
+- Name each topic after the actual subject matter it covers — e.g. "Requirements Engineering", "User Stories", "Software Process Models" — NOT structural labels like "Course Learning Objectives", "Lecture Outcomes", or "Module 1"
+- Infer the topic name from slide headings, section titles, or the dominant subject of a group of slides/pages
+- Each topic must represent a coherent subject area, not a document section or administrative grouping
+- Each outcome must be specific and testable: a concrete statement of what a student should be able to do or know after studying that topic
+- Ignore administrative content: quiz mechanics, grading policies, break slides, project deadlines, housekeeping announcements
+- If outcomes from different pages clearly belong to the same subject area, merge them under one topic
+- If no clear topics exist, use a single topic named after the document's core subject
 - Maximum 10 topics, maximum 8 outcomes per topic`;
 
       const response = await anthropic.messages.create({
@@ -242,9 +246,9 @@ Rules:
       const fileBuffer = await blob.arrayBuffer();
       const base64 = Buffer.from(new Uint8Array(fileBuffer)).toString("base64");
 
-      const prompt = `You are analyzing a university lecture document. Your task is narrow: look ONLY for an explicit section that lists learning outcomes or objectives (e.g. a section titled "Learning Outcomes", "Learning Objectives", "Course Objectives", "By the end of this lecture you will…", or similar).
+      const prompt = `You are analyzing a university lecture document. Look for explicit sections that list learning outcomes or objectives (e.g. sections titled "Learning Outcomes", "Learning Objectives", "By the end of this lecture you will…", or similar).
 
-If such a section exists, extract ONLY what is written there — do not infer or derive outcomes from the lecture content itself.
+If such sections exist, extract ONLY what is written there — do not infer or derive outcomes from the lecture content itself.
 
 If no such section exists, return an empty topics array.
 
@@ -264,7 +268,11 @@ Return ONLY a valid JSON object in this exact format, no other text:
 Rules:
 - Only populate this if you find an explicit outcomes/objectives section in the document
 - If no such section exists, return { "topics": [] }
-- Group outcomes under their relevant topic; use a single topic named after the lecture subject if no grouping is present
+- Name each topic after the actual subject matter it covers — e.g. "Requirements Engineering", "User Stories", "Agile Methods" — NOT structural labels like "Lecture Outcomes", "Learning Objectives", or "Week 3"
+- Infer the topic name from the lecture title, slide headings, or the dominant subject of the section where the outcomes appear
+- Each topic must represent a coherent subject area, not a document section or structural label
+- Each outcome must be specific and testable: a concrete statement of what a student should be able to do or know
+- Ignore administrative content: quiz mechanics, grading policies, break slides, project deadlines
 - Maximum 10 topics, maximum 8 outcomes per topic`;
 
       const response = await anthropic.messages.create({
@@ -360,6 +368,8 @@ export async function DELETE(
   } else {
     console.error("Could not derive storage path from fileUrl:", doc.fileUrl);
   }
+
+  await prisma.topic.deleteMany({ where: { documentId } });
 
   await prisma.document.delete({ where: { id: documentId } });
 

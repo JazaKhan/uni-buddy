@@ -7,7 +7,7 @@ import BugReportForm from "@/app/components/BugReportForm";
 
 type Course = {
   id: string;
-  name: string;
+  name: string;           
   code: string | null;
   credits: number;
   isArchived: boolean;
