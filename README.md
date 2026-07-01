@@ -2,7 +2,9 @@
 
 An AI-powered study assistant for university students. Upload your lecture notes and Uni Buddy generates personalised practice questions, grades your answers in real time, and tracks your mastery across your course's learning outcomes.
 
-**[Live Demo](https://uni-buddy-2kmr.vercel.app)**
+**[Live](https://uni-buddy-2kmr.vercel.app)**
+
+*Demo user access available on resume or upon request.*
 
 ---
 
